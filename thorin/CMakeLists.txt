@@ -19,6 +19,8 @@ add_library(libthorin
     lattice.h
     rewrite.cpp
     rewrite.h
+    rule.cpp
+    rule.h
     tuple.cpp
     tuple.h
     world.cpp

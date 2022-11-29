@@ -65,17 +65,22 @@ Tok Lexer::lex() {
             if (accept( '>')) return tok(Tok::Tag::D_quote_r);
             return tok(Tok::Tag::D_angle_r);
         }
+        if (accept( '=')) {
+            if (accept('>')) return tok(Tok::Tag::T_fatarrow);
+            return tok(Tok::Tag::T_assign);
+        }
         // further tokens
         if (accept(U'λ')) return tok(Tok::Tag::T_lm);
         if (accept(U'→')) return tok(Tok::Tag::T_arrow);
         if (accept( '@')) return tok(Tok::Tag::T_at);
-        if (accept( '=')) return tok(Tok::Tag::T_assign);
         if (accept( '!')) return tok(Tok::Tag::T_bang);
+        if (accept( '|')) return tok(Tok::Tag::T_bar);
         if (accept(U'⊥')) return tok(Tok::Tag::T_bot);
         if (accept(U'⊤')) return tok(Tok::Tag::T_top);
         if (accept(U'□')) return tok(Tok::Tag::T_box);
         if (accept( ',')) return tok(Tok::Tag::T_comma);
         if (accept( '#')) return tok(Tok::Tag::T_extract);
+        if (accept(U'⇒')) return tok(Tok::Tag::T_fatarrow);
         if (accept(U'Π')) return tok(Tok::Tag::T_Pi);
         if (accept( ';')) return tok(Tok::Tag::T_semicolon);
         if (accept(U'★')) return tok(Tok::Tag::T_star);

@@ -91,6 +91,7 @@ private:
     const Def* parse_lit();
     const Def* parse_var();
     const Def* parse_insert();
+    const Def* parse_rule();
     Lam* parse_lam(bool decl = false);
     ///@}
 

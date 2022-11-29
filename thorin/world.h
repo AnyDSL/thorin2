@@ -14,6 +14,7 @@
 #include "thorin/error.h"
 #include "thorin/flags.h"
 #include "thorin/lattice.h"
+#include "thorin/rule.h"
 #include "thorin/tuple.h"
 
 #include "thorin/util/hash.h"
@@ -107,8 +108,6 @@ public:
         return *move_.checker;
     }
     ErrorHandler* err() { return move_.err.get(); }
-    ///@}
-
     ///@}
 
     /// @name freeze
@@ -404,6 +403,14 @@ public:
     const Def* singleton(const Def* inner_type, const Def* dbg = {});
     ///@}
 
+    /// @name rules
+    ///@{
+    const RuleType* type_rule() { return data_.type_rule_; }
+    Rule* nom_rule(const Def* dbg = {}) {
+        return insert<Rule>(4, type_rule(), dbg);
+    }
+    ///@}
+
     /// @name globals -- depdrecated; will be removed
     ///@{
     Global* global(const Def* type, bool is_mutable = true, const Def* dbg = {}) { return insert<Global>(1, type, is_mutable, dbg); }
@@ -594,6 +601,7 @@ private:
         const Sigma* sigma_;
         const Tuple* tuple_;
         const Nat* type_nat_;
+        const RuleType* type_rule_;
         const Idx* type_idx_;
         const Def* table_id;
         const Def* table_not;

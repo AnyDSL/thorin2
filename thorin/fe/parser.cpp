@@ -230,6 +230,28 @@ const Def* Parser::parse_insert() {
     return world().insert(tuple, index, value, track);
 }
 
+const Def* Parser::parse_rule() {
+    eat(Tok::Tag::K_rule);
+
+    scopes_.push();
+    auto dom_p = parse_ptrn(Tok::Tag::D_paren_l, "domain pattern of a rule");
+    auto dom_t = dom_p->type(world());
+    scopes_.pop();
+
+    expect(Tok::Tag::T_assign, "rule");
+    scopes_.push();
+    auto rule = world().nom_rule()->set_dom(dom_t);
+    dom_p->bind(scopes_, rule->var());
+
+    auto ptrn  = parse_expr("pattern of a rule");
+    auto guard = accept(Tok::Tag::T_bar) ? parse_expr("guard of a rule") : world().lit_tt();
+    expect(Tok::Tag::T_fatarrow, "rule");
+    auto rhs = parse_expr("right-hand side of a rule");
+    rule->set(ptrn, guard, rhs);
+    scopes_.pop();
+    return rule;
+}
+
 const Def* Parser::parse_primary_expr(std::string_view ctxt) {
     // clang-format off
     switch (ahead().tag()) {
@@ -244,10 +266,12 @@ const Def* Parser::parse_primary_expr(std::string_view ctxt) {
         case Tok::Tag::K_Bool:    lex(); return world().type_bool();
         case Tok::Tag::K_Idx:     lex(); return world().type_idx();
         case Tok::Tag::K_Nat:     lex(); return world().type_nat();
+        case Tok::Tag::K_Rule:    lex(); return world().type_rule();
         case Tok::Tag::K_ff:      lex(); return world().lit_ff();
         case Tok::Tag::K_tt:      lex(); return world().lit_tt();
         case Tok::Tag::T_Pi:      return parse_pi();
         case Tok::Tag::T_at:      return parse_var();
+        case Tok::Tag::K_rule:    return parse_rule();
         case Tok::Tag::K_cn:
         case Tok::Tag::K_fn:
         case Tok::Tag::T_lm:      return parse_lam();

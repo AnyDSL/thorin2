@@ -5,6 +5,7 @@
 #include <stack>
 
 #include "thorin/rewrite.h"
+#include "thorin/rule.h"
 #include "thorin/world.h"
 
 #include "thorin/analyses/scope.h"
@@ -83,6 +84,7 @@ const Def* Pack     ::rebuild(World& w, const Def* t, Defs o, const Def* dbg) co
 const Def* Pi       ::rebuild(World& w, const Def*  , Defs o, const Def* dbg) const { return w.pi(o[0], o[1], dbg); }
 const Def* Pick     ::rebuild(World& w, const Def* t, Defs o, const Def* dbg) const { return w.pick(t, o[0], dbg); }
 const Def* Proxy    ::rebuild(World& w, const Def* t, Defs o, const Def* dbg) const { return w.proxy(t, o, as<Proxy>()->pass(), as<Proxy>()->tag(), dbg); }
+const Def* RuleType ::rebuild(World& w, const Def*  , Defs  , const Def*    ) const { return w.type_rule(); };
 const Def* Sigma    ::rebuild(World& w, const Def*  , Defs o, const Def* dbg) const { return w.sigma(o, dbg); }
 const Def* Singleton::rebuild(World& w, const Def*  , Defs o, const Def* dbg) const { return w.singleton(o[0], dbg); }
 const Def* Type     ::rebuild(World& w, const Def*  , Defs o, const Def*    ) const { return w.type(o[0]); }
@@ -111,6 +113,7 @@ Sigma*  Sigma ::stub(World& w, const Def* t, const Def* dbg) { return w.nom_sigm
 Arr*    Arr   ::stub(World& w, const Def* t, const Def* dbg) { return w.nom_arr  (t, dbg); }
 Pack*   Pack  ::stub(World& w, const Def* t, const Def* dbg) { return w.nom_pack (t, dbg); }
 Infer*  Infer ::stub(World& w, const Def* t, const Def* dbg) { return w.nom_infer(t, dbg); }
+Rule*   Rule  ::stub(World& w, const Def*  , const Def* dbg) { return w.nom_rule (dbg); }
 Global* Global::stub(World& w, const Def* t, const Def* dbg) { return w.global(t, is_mutable(), dbg); }
 
 // clang-format on
@@ -201,6 +204,7 @@ const Var* Def::var(const Def* dbg) {
     if (auto sig  = isa<Sigma>()) return w.var(sig,         sig, dbg);
     if (auto arr  = isa<Arr  >()) return w.var(w.type_idx(arr ->shape()), arr,  dbg); // TODO shapes like (2, 3)
     if (auto pack = isa<Pack >()) return w.var(w.type_idx(pack->shape()), pack, dbg); // TODO shapes like (2, 3)
+    if (auto rule = isa<Rule >()) return w.var(rule->dom(), rule, dbg);
     if (isa<Bound >()) return w.var(this, this,  dbg);
     if (isa<Infer >()) return nullptr;
     if (isa<Global>()) return nullptr;
