@@ -19,7 +19,7 @@ public:
     FreeDefAna(World& world)
         : world_(world)
         , cur_pass_id(1)
-        , lam2nodes_(){};
+        , lam2nodes_() {}
 
     /// FreeDefAna::run will compute free defs (FD) that appear in @p lam%s body.
     /// Nominal Def%s are only considered free if they are annotated with Clos::freeBB or
@@ -71,6 +71,19 @@ private:
     World& world_;
     unsigned cur_pass_id;
     DefMap<std::unique_ptr<Node>> lam2nodes_;
+};
+
+class ClosConv_ : public RWPhase {
+public:
+    ClosConv_(World& world)
+        : RWPhase(world, "clos_conv")
+        , fva_(world) {}
+
+    const Def* rewrite_structural(const Def*) override;
+    const Def* rewrite_nom(Def*) override;
+
+private:
+    FreeDefAna fva_;
 };
 
 /// Performs *typed closure conversion*.

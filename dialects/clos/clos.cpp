@@ -20,6 +20,23 @@
 
 namespace thorin::clos {
 
+size_t env_idx(Defs defs) {
+    if (defs.empty()) return 0;
+    if (match<mem::M>(defs.front()) || match<mem::M>(defs.front()->type())) return 1;
+    return 0;
+}
+
+Sigma* doms2clos(World& world, Defs doms) {
+    auto sigma   = world.nom_sigma(world.type<1>(), 3, world.dbg("Clos"))->set(0, world.type());
+    auto env_t   = sigma->var(0_s);
+    auto new_dom = env_insert<true>(world, doms, env_t);
+    sigma->set(1, world.cn(new_dom));
+    sigma->set(2, env_t);
+    return sigma;
+}
+
+Sigma* pi2clos(World& world, const Pi* pi) { return doms2clos(world, pi->doms()); }
+
 /*
  * ClosLit
  */
@@ -99,7 +116,7 @@ const Sigma* isa_clos_type(const Def* def) {
     return (pi && pi->is_cn() && pi->num_ops() > 1_u64 && pi->dom(Clos_Env_Param) == var) ? sig : nullptr;
 }
 
-Sigma* clos_type(const Pi* pi) { return ctype(pi->world(), pi->doms(), nullptr)->as_nom<Sigma>(); }
+Sigma* clos_type(const Pi* pi) { return pi2clos(pi->world(), pi); }
 
 const Pi* clos_type_to_pi(const Def* ct, const Def* new_env_type) {
     assert(isa_clos_type(ct));
