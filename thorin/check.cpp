@@ -46,7 +46,7 @@ const Def* Infer::find(const Def* def) {
  * Checker
  */
 
-bool Checker::equiv(Ref r1, Ref r2) {
+bool Checker::equiv(NomSet& done, Ref r1, Ref r2) {
     auto d1 = *r1; // find
     auto d2 = *r2; // find
 
@@ -75,34 +75,27 @@ bool Checker::equiv(Ref r1, Ref r2) {
     assert(!i1 && !i2);
     if (d1->gid() > d2->gid()) std::swap(d1, d2); // normalize
 
-    if (auto [it, ins] = equiv_.emplace(std::pair(d1, d2), Equiv::Unknown); !ins) {
-        switch (it->second) {
-            case Equiv::Distinct: return false;
-            case Equiv::Unknown:
-            case Equiv::Equiv: return true;
-            default: unreachable();
-        }
-    }
+    if (equiv_.contains({d1, d2})) return true;
 
-    bool res                  = equiv_internal(d1, d2);
-    equiv_[std::pair(d1, d2)] = res ? Equiv::Equiv : Equiv::Distinct;
-    return res;
-}
+    auto n1 = d1->isa_nom();
+    auto n2 = d2->isa_nom();
+    if (n1 && !done.emplace(n1).second) return false;
+    if (n2 && !done.emplace(n2).second) return false;
+    if (n1 && n2) vars_.emplace_back(n1, n2);
 
-bool Checker::equiv_internal(Ref d1, Ref d2) {
-    if (!equiv(d1->type(), d2->type())) return false;
-    if (d1->isa<Top>() || d2->isa<Top>()) return equiv(d1->type(), d2->type());
+    if (!equiv(done, d1->type(), d2->type())) return false;
+    if (d1->isa<Top>() || d2->isa<Top>()) return equiv(done, d1->type(), d2->type());
 
     if (auto n1 = d1->isa_nom()) {
         if (auto n2 = d2->isa_nom()) vars_.emplace_back(n1, n2);
     }
 
     if (d1->isa<Sigma, Arr>()) {
-        if (!equiv(d1->arity(), d2->arity())) return false;
+        if (!equiv(done, d1->arity(), d2->arity())) return false;
 
         if (auto a = d1->isa_lit_arity()) {
             for (size_t i = 0; i != a; ++i)
-                if (!equiv(d1->proj(*a, i), d2->proj(*a, i))) return false;
+                if (!equiv(done, d1->proj(*a, i), d2->proj(*a, i))) return false;
             return true;
         }
     }
@@ -116,46 +109,47 @@ bool Checker::equiv_internal(Ref d1, Ref d2) {
         return false;
     }
 
-    return std::ranges::equal(d1->ops(), d2->ops(), [&](auto op1, auto op2) { return equiv(op1, op2); });
+    return std::ranges::equal(d1->ops(), d2->ops(), [&](auto op1, auto op2) { return equiv(done, op1, op2); });
 }
 
-bool Checker::assignable(Ref type, Ref val) {
+bool Checker::assignable(NomSet& done, Ref type, Ref val) {
     auto val_ty = refer(val->type());
     if (type == val_ty) return true;
 
-    if (auto infer = val->isa_nom<Infer>()) return equiv(type, infer->type());
+    if (auto infer = val->isa_nom<Infer>()) return equiv(done, type, infer->type());
 
     if (auto sigma = type->isa<Sigma>()) {
-        if (!equiv(type->arity(), val_ty->arity())) return false;
+        if (!equiv(done, type->arity(), val_ty->arity())) return false;
 
         size_t a = sigma->num_ops();
         auto red = sigma->reduce(val);
 
         for (size_t i = 0; i != a; ++i)
-            if (!assignable(red[i], val->proj(a, i))) return false;
+            if (!assignable(done, red[i], val->proj(a, i))) return false;
 
         return true;
     } else if (auto arr = type->isa<Arr>()) {
-        if (!equiv(type->arity(), val_ty->arity())) return false;
+        if (!equiv(done, type->arity(), val_ty->arity())) return false;
 
         if (auto a = isa_lit(arr->arity())) {
             for (size_t i = 0; i != *a; ++i)
-                if (!assignable(arr->proj(*a, i), val->proj(*a, i))) return false;
+                if (!assignable(done, arr->proj(*a, i), val->proj(*a, i))) return false;
 
             return true;
         }
     } else if (auto vel = val->isa<Vel>()) {
-        if (assignable(type, vel->value())) return true;
+        if (assignable(done, type, vel->value())) return true;
     }
 
-    return equiv(type, val_ty);
+    return equiv(done, type, val_ty);
 }
 
 const Def* Checker::is_uniform(Defs defs) {
     assert(!defs.empty());
     auto first = defs.front();
     auto ops   = defs.skip_front();
-    return std::ranges::all_of(ops, [&](auto op) { return equiv(first, op); }) ? first : nullptr;
+    NomSet done;
+    return std::ranges::all_of(ops, [&](auto op) { return equiv(done, first, op); }) ? first : nullptr;
 }
 
 /*

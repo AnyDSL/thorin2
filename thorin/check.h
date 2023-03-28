@@ -46,11 +46,17 @@ public:
     World& world() const { return *world_; }
 
     /// Are @p d1 and @p d2 α-equivalent?
-    bool equiv(Ref d1, Ref d2);
+    bool equiv(Ref d1, Ref d2) {
+        NomSet done;
+        return equiv(done, d1, d2);
+    }
 
     /// Can @p value be assigned to sth of @p type?
     /// @note This is different from `equiv(type, value->type())` since @p type may be dependent.
-    bool assignable(Ref type, Ref value);
+    bool assignable(Ref type, Ref value) {
+        NomSet done;
+        return assignable(done, type, value);
+    }
 
     /// Yields `defs.front()`, if all @p defs are α-equiv%alent and `nullptr` otherwise.
     const Def* is_uniform(Defs defs);
@@ -58,16 +64,11 @@ public:
     static void swap(Checker& c1, Checker& c2) { std::swap(c1.world_, c2.world_); }
 
 private:
-    bool equiv_internal(Ref, Ref);
-
-    enum class Equiv {
-        Distinct,
-        Unknown,
-        Equiv,
-    };
+    bool equiv(NomSet&, Ref, Ref);
+    bool assignable(NomSet&, Ref, Ref);
 
     World* world_;
-    DefDefMap<Equiv> equiv_;
+    DefDefSet equiv_;
     std::deque<std::pair<Def*, Def*>> vars_;
 };
 
