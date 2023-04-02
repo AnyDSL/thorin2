@@ -433,11 +433,8 @@ Def* Def::lca(Def* mut1, Def* mut2) {
     std::vector<Def*> path1;
     for (auto m = mut1; m; m = m->dom_) path1.emplace_back(m);
 
-    for (auto m = mut2; m; m = m->dom_) {
-        if (auto i = std::ranges::find(path1, m); i != path1.end()) {
-            return *i;
-        }
-    }
+    for (auto m = mut2; m; m = m->dom_)
+        if (auto i = std::ranges::find(path1, m); i != path1.end()) return *i;
 
     err("'{}' and '{}' are in disjoint nesting trees", mut1, mut2);
 }
