@@ -457,6 +457,11 @@ public:
     friend std::ostream& operator<<(std::ostream&, const Def*);
     ///@}
 
+    /// @name navigate nesting structure
+    ///@{
+    static Def* lca(Def*, Def*); ///< Least common ancestor.
+    ///@}
+
 protected:
     virtual Ref rebuild_(World&, Ref, Defs) const = 0;
     virtual Def* stub_(World&, Ref) { unreachable(); }
@@ -494,6 +499,7 @@ protected:
     u32 num_ops_;
     mutable Uses uses_;
     mutable Dbg dbg_;
+    Def* dom_ = nullptr;
 
     const Def* type_;
 

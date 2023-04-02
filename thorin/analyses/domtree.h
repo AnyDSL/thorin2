@@ -29,8 +29,8 @@ public:
     const CFNode* root() const { return *idoms_.begin(); }
     const CFNode* idom(const CFNode* n) const { return idoms_[n]; }
     int depth(const CFNode* n) const { return depth_[n]; }
-    const CFNode* least_common_ancestor(const CFNode* i,
-                                        const CFNode* j) const; ///< Returns the least common ancestor of @p i and @p j.
+    /// Returns the least common ancestor of @p i and @p j.
+    const CFNode* lca(const CFNode* i, const CFNode* j) const;
 
 private:
     void create();

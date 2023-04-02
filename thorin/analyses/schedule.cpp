@@ -74,7 +74,7 @@ Def* Scheduler::late(const Def* def) {
     } else {
         for (auto use : uses(def)) {
             auto mut = late(use);
-            result   = result ? domtree().least_common_ancestor(cfg(result), cfg(mut))->mut() : mut;
+            result   = result ? domtree().lca(cfg(result), cfg(mut))->mut() : mut;
         }
     }
 
