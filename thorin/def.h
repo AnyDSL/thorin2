@@ -47,6 +47,20 @@ class World;
 using Defs     = Span<const Def*>;
 using DefArray = Array<const Def*>;
 
+template<class To>
+using DefMap  = GIDMap<const Def*, To>;
+using DefSet  = GIDSet<const Def*>;
+using Def2Def = DefMap<const Def*>;
+using DefDef  = std::tuple<const Def*, const Def*>;
+using DefVec  = std::vector<const Def*>;
+
+//------------------------------------------------------------------------------
+
+template<class To>
+using MutMap  = GIDMap<Def*, To>;
+using MutSet  = GIDSet<Def*>;
+using Mut2Mut = MutMap<Def*>;
+
 //------------------------------------------------------------------------------
 
 /// Retrieves Infer::arg from @p def
@@ -500,38 +514,13 @@ protected:
     mutable Uses uses_;
     mutable Dbg dbg_;
     Def* dom_ = nullptr;
+    MutSet children_;
 
     const Def* type_;
 
     friend class World;
     friend void swap(World&, World&);
 };
-
-template<class T>
-const T* isa(flags_t f, const Def* def) {
-    if (auto d = def->template isa<T>(); d && d->flags() == f) return d;
-    return nullptr;
-}
-
-template<class T>
-const T* as([[maybe_unused]] flags_t f, const Def* def) {
-    assert(isa<T>(f, def));
-    return def;
-}
-
-template<class T = std::logic_error, class... Args>
-[[noreturn]] void err(const Def* def, const char* fmt, Args&&... args) {
-    err(def->loc(), fmt, std::forward<Args&&>(args)...);
-}
-
-//------------------------------------------------------------------------------
-
-template<class To>
-using DefMap  = GIDMap<const Def*, To>;
-using DefSet  = GIDSet<const Def*>;
-using Def2Def = DefMap<const Def*>;
-using DefDef  = std::tuple<const Def*, const Def*>;
-using DefVec  = std::vector<const Def*>;
 
 struct DefDefHash {
     hash_t operator()(DefDef pair) const {
@@ -550,10 +539,22 @@ template<class To>
 using DefDefMap = absl::flat_hash_map<DefDef, To, DefDefHash, DefDefEq>;
 using DefDefSet = absl::flat_hash_set<DefDef, DefDefHash, DefDefEq>;
 
-template<class To>
-using MutMap  = GIDMap<Def*, To>;
-using MutSet  = GIDSet<Def*>;
-using Mut2Mut = MutMap<Def*>;
+template<class T>
+const T* isa(flags_t f, const Def* def) {
+    if (auto d = def->template isa<T>(); d && d->flags() == f) return d;
+    return nullptr;
+}
+
+template<class T>
+const T* as([[maybe_unused]] flags_t f, const Def* def) {
+    assert(isa<T>(f, def));
+    return def;
+}
+
+template<class T = std::logic_error, class... Args>
+[[noreturn]] void err(const Def* def, const char* fmt, Args&&... args) {
+    err(def->loc(), fmt, std::forward<Args&&>(args)...);
+}
 
 //------------------------------------------------------------------------------
 

@@ -288,34 +288,19 @@ bool Def::equal(const Def* other) const {
     return result;
 }
 
-void Def::finalize() {
-    for (size_t i = Use::Type; auto op : partial_ops()) {
-        if (op) {
-            dep_ |= op->dep();
-            if (!op->dep_const()) {
-                const auto& p = op->uses_.emplace(this, i);
-                assert_unused(p.second);
-            }
-        }
-        ++i;
-    }
-}
-
 Def* Def::set(size_t i, const Def* def) {
-    if (op(i) == def) return this;
+    assert(i < num_ops() && "index out of bounds");
+    if (op(i) == def || def == nullptr) return this;
     if (op(i) != nullptr) unset(i);
 
-    if (def != nullptr) {
-        assert(i < num_ops() && "index out of bounds");
-        ops_ptr()[i]  = def;
-        const auto& p = def->uses_.emplace(this, i);
-        assert_unused(p.second);
+    ops_ptr()[i]  = def;
+    const auto& p = def->uses_.emplace(this, i);
+    assert_unused(p.second);
 
-        // TODO check that others are set
-        if (i == num_ops() - 1) {
-            check();
-            update();
-        }
+    // TODO check that others are set
+    if (i == num_ops() - 1) {
+        check();
+        update();
     }
     return this;
 }
@@ -420,6 +405,27 @@ const Def* Def::proj(nat_t a, nat_t i) const {
     return w.extract(this, a, i);
 }
 
+void Def::finalize() {
+    assert(isa_imm());
+    for (size_t i = Use::Type; auto op : partial_ops()) {
+        if (op) {
+            dep_ |= op->dep();
+            if (!op->dep_const()) {
+                const auto& p = op->uses_.emplace(this, i);
+                assert_unused(p.second);
+            }
+
+#if 0
+            if (auto var = op->isa<Var>())
+                dom_ = lca(dom_, var->mut());
+            else
+                dom_ = lca(dom_, op->dom_);
+#endif
+        }
+        ++i;
+    }
+}
+
 /*
  * Nesting
  */
@@ -436,7 +442,7 @@ Def* Def::lca(Def* mut1, Def* mut2) {
     for (auto m = mut2; m; m = m->dom_)
         if (auto i = std::ranges::find(path1, m); i != path1.end()) return *i;
 
-    err("'{}' and '{}' are in disjoint nesting trees", mut1, mut2);
+    err(mut1->loc(), "'{}' and '{}' are in disjoint nesting trees", mut1, mut2);
 }
 
 /*
