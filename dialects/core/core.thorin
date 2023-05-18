@@ -219,9 +219,14 @@
 ///
 /// ### %core.conv
 ///
-/// Conversion between index types - both signed and unsigned - of different sizes.
+/// Conversion between `.Idx` types - both signed and unsigned - of different sizes.
 ///
 .ax %core.conv(s, u): Π.[ss: .Nat][ds: .Nat][.Idx ss] -> .Idx ds, normalize_conv;
+///
+/// Conversion between `.Idx` types and `.Nat`.
+///
+.ax %core.conv(u2n): Π.[ss: .Nat][.Idx ss] -> .Nat,    normalize_conv;
+.ax %core.conv(n2u): Π [ds: .Nat][.Nat   ] -> .Idx ds, normalize_conv;
 ///
 /// ### %core.bitcast
 ///

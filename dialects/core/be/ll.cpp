@@ -701,8 +701,8 @@ std::string Emitter::emit_bb(BB& bb, const Def* def) {
         auto t_src = convert(conv->arg()->type());
         auto t_dst = convert(conv->type());
 
-        nat_t w_src = *Idx::size2bitwidth(Idx::size(conv->arg()->type()));
-        nat_t w_dst = *Idx::size2bitwidth(Idx::size(conv->type()));
+        nat_t w_src = conv.id() != core::conv::n2u ? *Idx::size2bitwidth(Idx::size(conv->arg()->type())) : 64;
+        nat_t w_dst = conv.id() != core::conv::u2n ? *Idx::size2bitwidth(Idx::size(conv->type())) : 64;
 
         if (w_src == w_dst) return v_src;
 
