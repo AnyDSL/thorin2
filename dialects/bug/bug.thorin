@@ -1,0 +1,44 @@
+.import core;
+.import math;
+.import mem;
+
+.ax %bug.lower_map_reduce: %compile.Pass;
+
+.lam %bug.dummy [n: .Nat] [T: *] [U: *] Ts::[«n; T»]: U = %core.bitcast U Ts#0_1;
+
+.Sigma %bug.Num: □, 6 = [
+    T: *, _0: T, _1: T,
+    abs: T -> T,
+    and: [T, T] -> .Bool,
+    or:  [T, T] -> .Bool
+];
+
+.lam %bug.Op [n: .Nat] [M: %bug.Num, N: %bug.Num]: * = «n; M#T» -> N#T;
+.lam %bug.Op_1 [N: %bug.Num] = %bug.Op 1 (N, N);
+
+.let %bug.TF64 = (
+    %math.F64, 0.0:%math.F64, 1.0:%math.F64,
+    /* abs */ %math.abs 0,
+    /* and */ %bug.dummy 2 %math.F64 .Bool,
+    /* or  */ %bug.dummy 2 %math.F64 .Bool
+);
+
+.Sigma %bug.Shp: □, 3 = [n: .Nat, S: «n; .Nat», N: %bug.Num];
+
+.ax %bug.len: %bug.Shp -> .Nat, normalize_len;
+
+.lam %bug.Tsr [S: %bug.Shp]: * = %mem.Ptr0 «%bug.len S; S#N#T»;
+
+.lam %bug.MapRed [n: .Nat] [Ss: «n; %bug.Shp», T: %bug.Shp]: * = .Fn [%mem.M, T#N#T, «i: n; (Ss#i)#N#T»] -> [%mem.M, T#N#T];
+
+.ax %bug.map_reduce: Π [n: .Nat] [Ss: «n; %bug.Shp», T: %bug.Shp]
+    [fn: %bug.MapRed n (Ss, T)] [mem: %mem.M, Xs: «i: n; %bug.Tsr Ss#i», Y: %bug.Tsr T] -> %mem.M;
+
+.fun %bug.apply1 [S: %bug.Shp] [op: %bug.Op_1 S#N] (mem: %mem.M, X Y: %bug.Tsr S): %mem.M = {
+    .fun apply [mem: %mem.M, acc: S#N#T, x: S#N#T]: [%mem.M, S#N#T] = return (mem, op x);
+    .let `mem = %bug.map_reduce 1 (S, S) apply (mem, X, Y);
+    return mem
+};
+
+.fun %bug.func.abs [S: %bug.Shp] XY::[%mem.M, %bug.Tsr S, %bug.Tsr S]: %mem.M =
+    .ret mem = %bug.apply1 S S#N#abs $ XY; return mem;

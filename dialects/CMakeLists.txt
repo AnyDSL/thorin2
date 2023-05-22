@@ -13,6 +13,19 @@ add_thorin_plugin(affine
     INSTALL
 )
 
+add_thorin_plugin(bug
+    SOURCES
+        bug/bug.cpp
+        bug/bug.h
+        bug/normalizers.cpp
+        bug/passes/lower_map_reduce.cpp
+    DEPENDS
+        core
+        math
+        mem
+    INSTALL
+)
+
 add_thorin_plugin(autodiff
     SOURCES
         autodiff/autodiff.cpp
@@ -147,6 +160,7 @@ add_thorin_plugin(matrix
         compile
     INSTALL
 )
+
 add_thorin_plugin(mem
     SOURCES
         mem/mem.cpp

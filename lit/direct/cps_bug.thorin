@@ -1,0 +1,8 @@
+.plugin bug;
+.plugin direct; // ohne zickt er rum
+
+.fun .extern stuff [mem: %mem.M, _T0: %bug.Tsr (4, (1, 2, 15, 15), %bug.TF64)]: %mem.M = {
+    .let _S0 = (4, (1, 2, 15, 15), %bug.TF64);
+    .ret `mem = %bug.func.abs _S0 $ (mem, _T0, _T0);
+    return mem
+};
