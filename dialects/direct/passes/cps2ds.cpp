@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include <thorin/lam.h>
+#include "thorin/lattice.h"
 
 #include "dialects/direct/autogen.h"
 #include "dialects/direct/direct.h"
@@ -16,6 +17,10 @@ void CPS2DS::rewrite_lam(Lam* lam) {
 
     if (lam->isa_imm() || !lam->is_set() || lam->codom()->isa<Type>()) {
         lam->world().DLOG("skipped {}", lam);
+        return;
+    }
+    if(!lam->codom()->isa<Bot>()) {
+        world().WLOG("direct style lambda {} : {} skipped. This will likely cause problems during code generation.", lam, lam->type());
         return;
     }
 

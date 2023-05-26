@@ -4,20 +4,18 @@
 ///
 /// [TOC]
 ///
-/// This plugin has three jobs:
-/// 1. Convert inline direct style calls to CPS (and their functions).
-/// 2. Wrap DS functions to CPS functions using an axiom.
-/// 3. Convert CPS functions to DS functions using an axiom.
+/// This plugin has two operating phases:
+/// 1. ds2cps: Convert direct style functions to CPS functions.
+///    This transformation changes the type signature and wraps the body in a return.
+///    Replace all callee occurrences (call sites) with a wrapped call using the `cps2ds` axiom.
+/// 2. cps2ds: Replace calls to the `cps2ds` axiom with cps style continuations.
+///   For each call, a new continuation is created and the function call continues in the new function.
 ///
 /// ## Dependencies
 ///
 .import compile;
 ///
 /// ## Operations
-///
-/// ### %direct.ds2cps
-///
-// .ax %direct.ds2cps: Π [T: *, U: *] -> (T -> U) -> .Cn [T, .Cn U];
 ///
 /// ### %direct.cps2ds
 ///
