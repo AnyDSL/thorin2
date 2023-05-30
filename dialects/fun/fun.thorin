@@ -1,0 +1,67 @@
+/// # The fun Plugin {#fun}
+///
+/// @see thorin::fun
+///
+/// [TOC]
+///
+/// This plugin provides several abstractions from functional programming.
+///
+/// ## Operations
+///
+/// ### %fun.br
+///
+/// Wrapper for a conditional branch.
+/// @warning type inference not working
+///
+.lam %fun.br!.(T: *, U: *)(cond: .Bool, t: T -> U, f: T -> U, arg: T): U = (f, t)#cond arg;
+///
+/// ### %fun.zip
+///
+/// [Zips](https://en.wikipedia.org/wiki/Zipping_(computer_science)) several tensors.
+///
+/// * `r`:  rank of the tensors to zip
+/// * `s`:  shape of the tensors to zip
+/// * `ni`: number if inputs
+/// * `no`: number if outputs
+/// * `Is`: tuple with `ni` many elements that describe the element types of the inputs
+/// * `Os`: tuple with `no` many elements that describe the element types of the outputs
+/// * `f`:  zipping function that expects an `ni`-tuple whose elements correspond to `Is` and yields an `no`-tuple whose element types correspond to `Os`
+/// * `is`: the actual input tensors
+///
+.ax %fun.zip: Π [r: .Nat, s: «r; .Nat», ni: .Nat, Is: «ni; *», no: .Nat, Os: «no; *»]
+                [f: «i: ni; Is#i» -> «o: no; Os#o»]
+                [is: «i: ni; «s; Is#i»»] -> «o: no; «s; Os#o»», normalize_zip;
+///
+/// ### %fun.map
+///
+/// [Maps](https://en.wikipedia.org/wiki/Map_(higher-order_function)) several tensors.
+///
+/// * `r`:  rank of the tensors to map
+/// * `s`:  shape of the tensors to map
+/// * `ni`: number if inputs
+/// * `Is`: tuple with `ni` many elements that describe the element types of the inputs
+/// * `O`:  output type
+/// * `f`:  mapping function that expects an `ni`-tuple whose elements correspond to `Is` and yields an `O`
+/// * `is`: the actual input tensors
+///
+.ax %fun.map: Π [r: .Nat, s: «r; .Nat», ni: .Nat, Is: «ni; *», O: *]
+                [f: «i: ni; Is#i» -> O]
+                [is: «i: ni; «s; Is#i»»] -> «s; O», normalize_map;
+///
+/// ### %fun.reduce
+///
+/// [Reduces](https://en.wikipedia.org/wiki/Reduction_operator) several tensors.
+///
+/// * `r`:    rank of the tensors to zip
+/// * `s`:    shape of the tensors to zip
+/// * `ni`:   number if inputs
+/// * `Is`:   tuple with `ni` many elements that describe the element types of the inputs
+/// * `f`:    reduction function that expects a pair of `ni`-tuples whose elements correspond to `Is` and yields again such an `ni`-tuple
+/// * `is`:   the actual input tensors
+/// * `init`: first value
+/// * `dims`: Boolean mask vector of size `r` that indicates along which dimensions we want to reduce
+///
+.ax %fun.reduce: Π [r: .Nat, s: «r; .Nat», ni: .Nat, Is: «ni; *»]
+                   [f: «2; «i: ni; Is#i»» -> «i: ni; Is#i»]
+                   [is: «i: ni; «s; Is#i»», init: «i: ni; Is#i», dims: «r; .Bool»]
+                -> «i: ni; «‹j: r; (s#j, 1)#(dims#j)›; Is#i»», normalize_reduce;
