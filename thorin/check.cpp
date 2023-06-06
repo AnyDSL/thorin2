@@ -1,8 +1,29 @@
 #include "thorin/check.h"
 
+#include <algorithm>
+
+#include "thorin/rewrite.h"
 #include "thorin/world.h"
 
 namespace thorin {
+
+namespace {
+
+class InferRewriter : public Rewriter {
+public:
+    InferRewriter(World& world)
+        : Rewriter(world) {}
+
+    Ref rewrite(Ref old_def) override {
+        if (!old_def || old_def->isa_mut()) return old_def;
+        if (old_def->has_dep(Dep::Infer)) return Rewriter::rewrite(old_def);
+        return old_def;
+    }
+};
+
+template<class T> bool to_left(const Def* d1, const Def* d2) { return !d1->isa<T>() && d2->isa<T>(); }
+
+} // namespace
 
 /*
  * Infer
@@ -42,20 +63,62 @@ const Def* Infer::find(const Def* def) {
     return res;
 }
 
+Ref Infer::explode() {
+    if (is_set()) return {};
+    auto a = type()->isa_lit_arity();
+    if (!a) return {};
+
+    auto n      = *a;
+    auto infers = DefArray(n);
+    auto& w     = world();
+
+    if (auto arr = type()->isa_imm<Arr>(); arr && n > world().flags().infer_arr_threshold) {
+        auto pack = w.pack(arr->shape(), w.mut_infer(arr->body()));
+        set(pack);
+        return pack;
+    }
+
+    if (auto sigma = type()->isa_mut<Sigma>(); sigma && n >= 1 && sigma->var()) {
+        Scope scope(sigma);
+        ScopeRewriter rw(scope);
+        infers[0] = w.mut_infer(sigma->op(0));
+        for (size_t i = 1; i != n; ++i) {
+            rw.map(sigma->var(n, i - 1), infers[i - 1]);
+            infers[i] = w.mut_infer(rw.rewrite(sigma->op(i)));
+        }
+    } else {
+        for (size_t i = 0; i != n; ++i) infers[i] = w.mut_infer(type()->proj(n, i));
+    }
+
+    auto tuple = w.tuple(infers);
+    set(tuple);
+    return tuple;
+}
+
+bool Infer::eliminate(Array<Ref*> refs) {
+    if (std::ranges::any_of(refs, [](auto pref) { return (*pref)->has_dep(Dep::Infer); })) {
+        auto& world = (*refs.front())->world();
+        InferRewriter rw(world);
+        for (size_t i = 0, e = refs.size(); i != e; ++i) {
+            auto ref = *refs[i];
+            *refs[i] = ref->has_dep(Dep::Infer) ? rw.rewrite(ref) : ref;
+        }
+        return true;
+    }
+    return false;
+}
+
 /*
  * Check
  */
 
-template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
+template<Check::Mode mode> bool Check::alpha_(Ref r1, Ref r2) {
     auto d1 = *r1; // find
     auto d2 = *r2; // find
-
-    if (!d1 && !d2) return true;
-    if (!d1 || !d2) return false;
+    assert(d1 && d2);
 
     // It is only safe to check for pointer equality if there are no Vars involved.
-    // Otherwise, we have to look more thoroughly.
-    // Example: λx.x - λz.x
+    // Otherwise, we have to look more thoroughly. Example: λx.x - λz.x
     if (!d1->has_dep(Dep::Var) && !d2->has_dep(Dep::Var) && d1 == d2) return true;
     auto mut1 = d1->isa_mut();
     auto mut2 = d2->isa_mut();
@@ -68,12 +131,17 @@ template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
 
     if ((!i1 && !d1->is_set()) || (!i2 && !d2->is_set())) return false;
 
-    if (infer) {
+    if (mode == Relaxed) {
         if (i1 && i2) {
-            // union by rank
-            if (i1->rank() < i2->rank()) std::swap(i1, i2); // make sure i1 is heavier or equal
-            i2->set(i1);                                    // make i1 new root
-            if (i1->rank() == i2->rank()) ++i1->rank();
+            // union by rank: attach the lighter node to the heavier one
+            if (i1->rank() < i2->rank())
+                i1->set(i2);
+            else if (i2->rank() < i1->rank())
+                i2->set(i1);
+            else {
+                i1->set(i2);
+                ++i2->rank();
+            }
             return true;
         } else if (i1) {
             i1->set(d2);
@@ -85,34 +153,44 @@ template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
     }
 
     // normalize:
-    if ((d1->isa<Lit>() && !d2->isa<Lit>())      // Lit to right
-        || (!d1->isa<UMax>() && d2->isa<UMax>()) // UMax to left
-        || (d1->gid() > d2->gid()))              // smaller gid to left
+    if (to_left<Extract>(d1, d2) || to_left<Tuple>(d1, d2) || to_left<Pack>(d1, d2) || to_left<Sigma>(d1, d2)
+        || to_left<Arr>(d1, d2) || to_left<UMax>(d1, d2) || to_left<Type>(d1, d2) || to_left<Univ>(d1, d2))
         std::swap(d1, d2);
 
-    return alpha_internal<infer>(d1, d2);
+    return alpha_internal<mode>(d1, d2);
 }
 
-template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
-    if (!alpha_<infer>(d1->type(), d2->type())) return false;
-    if (d1->isa<Top>() || d2->isa<Top>()) return infer;
-    if (!infer && (d1->isa_mut<Infer>() || d2->isa_mut<Infer>())) return false;
-    if (!alpha_<infer>(d1->arity(), d2->arity())) return false;
+template<Check::Mode mode> bool Check::alpha_internal(Ref d1, Ref d2) {
+    if (d1->isa<Univ>()) return d2->isa<Univ>();
+    if (auto type1 = d1->isa<Type>()) {
+        if (auto type2 = d2->isa<Type>()) return alpha_<mode>(type1->level(), type2->level());
+        return false;
+    }
+
+    if (!alpha_<mode>(d1->type(), d2->type())) return false;
+    if (d1->isa<Top>() || d2->isa<Top>()) return mode == Relaxed;
+    if (mode != Relaxed && (d1->isa_mut<Infer>() || d2->isa_mut<Infer>())) return false;
+    if (!alpha_<mode>(d1->arity(), d2->arity())) return false;
 
     // vars are equal if they appeared under the same binder
     if (auto mut1 = d1->isa_mut()) assert_emplace(vars_, mut1, d2->isa_mut());
     if (auto mut2 = d2->isa_mut()) assert_emplace(vars_, mut2, d1->isa_mut());
 
+    // TODO more than one level
+    if (auto extract = d1->isa<Extract>(); extract && !d2->isa<Extract>()) {
+        if (auto infer = extract->tuple()->isa_mut<Infer>()) infer->explode();
+    }
+
     if (auto ts = d1->isa<Tuple, Sigma>()) {
         size_t a = ts->num_ops();
         for (size_t i = 0; i != a; ++i)
-            if (!alpha_<infer>(ts->op(i), d2->proj(a, i))) return false;
+            if (!alpha_<mode>(ts->op(i), d2->proj(a, i))) return false;
         return true;
     } else if (auto pa = d1->isa<Pack, Arr>()) {
-        if (pa->node() == d2->node()) return alpha_<infer>(pa->ops().back(), d2->ops().back());
+        if (pa->node() == d2->node()) return alpha_<mode>(pa->ops().back(), d2->ops().back());
         if (auto a = pa->isa_lit_arity()) {
             for (size_t i = 0; i != *a; ++i)
-                if (!alpha_<infer>(pa->proj(*a, i), d2->proj(*a, i))) return false;
+                if (!alpha_<mode>(pa->proj(*a, i), d2->proj(*a, i))) return false;
             return true;
         }
     } else if (auto umax = d1->isa<UMax>(); umax && umax->has_dep(Dep::Infer) && !d2->isa<UMax>()) {
@@ -128,23 +206,30 @@ template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
         auto var2 = d2->as<Var>();
         if (auto i = vars_.find(var1->mut()); i != vars_.end()) return i->second == var2->mut();
         if (auto i = vars_.find(var2->mut()); i != vars_.end()) return false; // var2 is bound
-        // both var1 and var2 are free: OK, when they are the same or in infer mode
-        return var1 == var2 || infer;
+        // both var1 and var2 are free: OK, when they in Mode::Relaxed
+        return var1 == var2 || mode == Relaxed;
     }
 
     for (size_t i = 0, e = d1->num_ops(); i != e; ++i)
-        if (!alpha_<infer>(d1->op(i), d2->op(i))) return false;
+        if (!alpha_<mode>(d1->op(i), d2->op(i))) return false;
     return true;
 }
 
+bool Check::assignable(Ref type, Ref value) {
+    auto check = Check(true);
+    if (check.assignable_(type, value)) return true;
+    if (check.rerun() && Infer::eliminate(Array<Ref*>{&type, &value})) return Check().assignable_(type, value);
+    return false;
+}
+
 bool Check::assignable_(Ref type, Ref val) {
-    auto val_ty = Ref::refer(val->type());
+    auto val_ty = Ref::refer(val->unfold_type());
     if (type == val_ty) return true;
 
-    if (auto infer = val->isa_mut<Infer>()) return alpha_<true>(type, infer->type());
+    if (auto infer = val->isa_mut<Infer>()) return alpha_<Relaxed>(type, infer->type());
 
     if (auto sigma = type->isa<Sigma>()) {
-        if (!alpha_<true>(type->arity(), val_ty->arity())) return false;
+        if (!alpha_<Relaxed>(type->arity(), val_ty->arity())) return false;
 
         size_t a = sigma->num_ops();
         auto red = sigma->reduce(val);
@@ -152,7 +237,7 @@ bool Check::assignable_(Ref type, Ref val) {
             if (!assignable_(red[i], val->proj(a, i))) return false;
         return true;
     } else if (auto arr = type->isa<Arr>()) {
-        if (!alpha_<true>(type->arity(), val_ty->arity())) return false;
+        if (!alpha_<Relaxed>(type->arity(), val_ty->arity())) return false;
 
         if (auto a = Lit::isa(arr->arity())) {
             for (size_t i = 0; i != *a; ++i)
@@ -163,14 +248,14 @@ bool Check::assignable_(Ref type, Ref val) {
         return assignable_(type, vel->value());
     }
 
-    return alpha_<true>(type, val_ty);
+    return alpha_<Relaxed>(type, val_ty);
 }
 
 Ref Check::is_uniform(Defs defs) {
     if (defs.empty()) return nullptr;
     auto first = defs.front();
     for (size_t i = 1, e = defs.size(); i != e; ++i)
-        if (!alpha<false>(first, defs[i])) return nullptr;
+        if (!alpha<Strict>(first, defs[i])) return nullptr;
     return first;
 }
 
@@ -206,6 +291,11 @@ void Pi::check() {
     auto t = infer(dom(), codom());
     if (!Check::alpha(t, type()))
         error(type(), "declared sort '{}' of function type does not match inferred one '{}'", type(), t);
+}
+
+void Infer::check() {
+    if (!Check::assignable(type(), op()))
+        error(type(), "cannot assign '{}' of type '{}' to Infer of type '{}'", op(), op()->type(), type());
 }
 
 } // namespace thorin
