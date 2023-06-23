@@ -200,7 +200,6 @@ add_thorin_plugin(regex
     INSTALL
 )
 
-
 add_thorin_plugin(opt
     SOURCES
         opt/opt.cpp

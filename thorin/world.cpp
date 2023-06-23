@@ -176,13 +176,6 @@ Ref World::iapp(Ref callee, Ref arg) {
             auto a     = app(callee, infer);
             callee     = a;
         } else {
-            // resolve Infers now if possible before normalizers are run
-            if (auto app = callee->isa<App>(); app && app->curry() == 1) {
-                Check::assignable(callee->type()->as<Pi>()->dom(), arg);
-                auto apps = decurry(app);
-                callee    = apps.front()->callee();
-                for (auto app : apps) callee = this->app(callee, Ref::refer(app->arg()));
-            }
             break;
         }
     }
@@ -191,17 +184,11 @@ Ref World::iapp(Ref callee, Ref arg) {
 }
 
 Ref World::app(Ref callee, Ref arg) {
-    // try to eliminate Infers if present - TODO better place for this?
-    if (callee->has_dep(Dep::Infer) || arg->has_dep(Dep::Infer)) {
-        InferRewriter rw(*this);
-        callee = rw.rewrite(callee);
-        arg    = rw.rewrite(arg);
-    }
-
+    Infer::eliminate(Array<Ref*>{&callee, &arg});
     auto pi = callee->type()->isa<Pi>();
-
     if (!pi) error(callee, "called expression '{}' : '{}' is not of function type", callee, callee->type());
-    if (!Check::assignable(pi->dom(), arg))
+    auto [dom, iarg] = Check2::assignable(pi->dom(), arg);
+    if (!dom)
         error(arg, "cannot pass argument \n'{}' of type \n'{}' to \n'{}' of domain \n'{}'", arg, arg->type(), callee,
               pi->dom());
 
@@ -209,15 +196,15 @@ Ref World::app(Ref callee, Ref arg) {
     if (auto lam = callee->isa_mut<Lam>(); lam && lam->is_set() && lam->filter() != lit_ff()) {
         Scope scope(lam);
         ScopeRewriter rw(scope);
-        rw.map(lam->var(), arg);
+        rw.map(lam->var(), iarg);
         if (rw.rewrite(lam->filter()) == lit_tt()) {
-            DLOG("partial evaluate: {} ({})", lam, arg);
+            DLOG("partial evaluate: {} ({})", lam, iarg);
             return rw.rewrite(lam->body());
         }
     }
 
-    auto type = pi->reduce(arg).back();
-    return raw_app<true>(type, callee, arg);
+    auto type = pi->reduce(iarg).back();
+    return raw_app<true>(type, callee, iarg);
 }
 
 template<bool Normalize> Ref World::raw_app(Ref type, Ref callee, Ref arg) {
@@ -246,7 +233,7 @@ Ref World::tuple(Defs ops) {
 
     auto sigma = infer_sigma(*this, ops);
     auto t     = tuple(sigma, ops);
-    if (!Check::assignable(sigma, t))
+    if (Check2::assignable(sigma, t) == Check2::False)
         error(t, "cannot assign tuple '{}' of type '{}' to incompatible tuple type '{}'", t, t->type(), sigma);
 
     return t;
@@ -319,7 +306,7 @@ Ref World::extract(Ref d, Ref index) {
 
     if (auto pack = d->isa_imm<Pack>()) return pack->body();
 
-    if (!Check::alpha(type->arity(), size))
+    if (Check2::alpha(type->arity(), size) == Check2::False)
         error(index, "index '{}' does not fit within arity '{}'", index, type->arity());
 
     // extract(insert(x, index, val), index) -> val
@@ -361,12 +348,12 @@ Ref World::insert(Ref d, Ref index, Ref val) {
     auto size = Idx::size(index->type());
     auto lidx = Lit::isa(index);
 
-    if (!Check::alpha(type->arity(), size))
+    if (Check2::alpha(type->arity(), size) == Check2::False)
         error(index, "index '{}' does not fit within arity '{}'", index, type->arity());
 
     if (lidx) {
         auto target_type = type->proj(*lidx);
-        if (!Check::assignable(target_type, val))
+        if (Check2::assignable(target_type, val) == Check2::False)
             error(val, "value of type {} is not assignable to type {}", val->type(), target_type);
     }
 
@@ -525,7 +512,7 @@ Ref World::test(Ref value, Ref probe, Ref match, Ref clash) {
     assert(m_pi && c_pi);
     auto a = m_pi->dom()->isa_lit_arity();
     assert_unused(a && *a == 2);
-    assert(Check::alpha(m_pi->dom(2, 0_s), c_pi->dom()));
+    assert(Check2::alpha(m_pi->dom(2, 0_s), c_pi->dom()) != Check2::False);
 
     auto codom = join({m_pi->codom(), c_pi->codom()});
     return unify<Test>(4, pi(c_pi->dom(), codom), value, probe, match, clash);

@@ -22,6 +22,7 @@ namespace thorin {
 namespace {
 
 Def* isa_decl(const Def* def) {
+    if (def->isa<Infer>()) return nullptr;
     if (auto mut = def->isa_mut()) {
         if (mut->is_external() || mut->isa<Lam>() || (mut->sym() && mut->sym() != '_')) return mut;
     }
@@ -44,14 +45,14 @@ std::string_view external(const Def* def) {
 
 /// This is a wrapper to dump a Def "inline" and print it with all of its operands.
 struct Inline {
-    Inline(const Def* def, int dump_gid)
+    Inline(Ref def, int dump_gid)
         : def_(def)
         , dump_gid_(dump_gid) {}
-    Inline(const Def* def)
+    Inline(Ref def)
         : Inline(def, def->world().flags().dump_gid) {}
 
-    const Def* operator->() const { return def_; };
-    const Def* operator*() const { return def_; };
+    Ref operator->() const { return def_; };
+    Ref operator*() const { return def_; };
     explicit operator bool() const {
         if (def_->dep_const()) return true;
 
@@ -71,7 +72,7 @@ struct Inline {
     }
 
 private:
-    const Def* def_;
+    Ref def_;
     const int dump_gid_;
 
     friend std::ostream& operator<<(std::ostream&, Inline);
@@ -169,6 +170,8 @@ std::ostream& operator<<(std::ostream& os, Inline u) {
         auto op = bound->isa<Join>() ? "∪" : "∩";
         if (auto mut = u->isa_mut()) print(os, "{}{}: {}", op, mut->unique_name(), mut->type());
         return print(os, "{}({, })", op, bound->ops());
+    } else if (auto infer = u->isa<Infer>()) {
+        return print(os, "?{}:({})", infer->gid(), infer->type());
     }
 
     // other
