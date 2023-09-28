@@ -315,6 +315,12 @@ public:
     size_t num_uses() const { return uses().size(); }
     ///@}
 
+    /// @name local_vars/local_muts
+    ///@{
+    const auto& local_vars() const { return local_vars_; }
+    const auto& local_muts() const { return local_muts_; }
+    ///@}
+
     /// @name dep
     ///@{
     /// @see Dep.
@@ -497,6 +503,7 @@ private:
     const Def** ops_ptr() const {
         return reinterpret_cast<const Def**>(reinterpret_cast<char*>(const_cast<Def*>(this + 1)));
     }
+    void finalize(const Def*, size_t);
     void finalize();
     bool equal(const Def* other) const;
 
@@ -525,6 +532,11 @@ private:
     u32 gid_;
     u32 num_ops_;
     mutable Uses uses_;
+    mutable VarSet local_vars_;
+    mutable MutSet local_muts_;
+    mutable VarSet global_vars_;
+    mutable MutSet global_muts_;
+    mutable MutSet mut_uses_;
     const Def* type_;
 
     friend class World;

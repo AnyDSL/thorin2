@@ -61,7 +61,8 @@ Def::Def(node_t node, const Def* type, size_t num_ops, flags_t flags)
     , dep_(Dep::Mut | (node == Node::Infer ? Dep::Infer : Dep::None))
     , num_ops_(num_ops)
     , type_(type) {
-    gid_  = world().next_gid();
+    gid_ = world().next_gid();
+    local_muts_.emplace(this);
     hash_ = murmur3(gid());
     std::fill_n(ops_ptr(), num_ops, nullptr);
     if (!type->dep_const()) type->uses_.emplace(this, Use::Type);
@@ -332,17 +333,23 @@ bool Def::equal(const Def* other) const {
     return result;
 }
 
+void Def::finalize(const Def* op, size_t i) {
+    local_vars_.insert(op->local_vars().begin(), op->local_vars().end());
+    local_muts_.insert(op->local_muts().begin(), op->local_muts().end());
+    dep_ |= op->dep();
+    if (!op->dep_const()) assert_emplace(op->uses_, this, i);
+}
+
 void Def::finalize() {
-    for (size_t i = Use::Type; auto op : partial_ops()) {
-        if (op) {
-            dep_ |= op->dep();
-            if (!op->dep_const()) {
-                const auto& p = op->uses_.emplace(this, i);
-                assert_unused(p.second);
-            }
-        }
-        ++i;
+    if (auto var = isa<Var>()) {
+        local_vars_.insert(var);
+        dep_ |= var->mut()->dep();
+        assert_emplace(var->mut()->uses_, this, 0);
+    } else {
+        for (size_t i = 0, e = num_ops(); i != e; ++i) finalize(op(i), i);
     }
+
+    if (auto t = type()) finalize(t, Use::Type);
 }
 
 // clang-format off

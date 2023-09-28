@@ -282,3 +282,24 @@ TEST(Check, alpha) {
 
     check(l_1, l_1, true, true);
 }
+
+TEST(FreeVars, imm) {
+    Driver driver;
+    World& w    = driver.world();
+    auto parser = fe::Parser(w);
+    parser.plugin("core");
+
+    auto pi = w.pi(w.type_int(32), w.type_int(32));
+    auto l  = w.mut_lam(pi);
+    auto m  = w.mut_lam(pi);
+    auto n  = w.mut_lam(pi);
+    auto a  = l->var();
+    auto b  = m->var();
+    auto c  = n->var();
+    auto ab = w.call(core::wrap::add, 0, Defs{a, b});
+    auto ac = w.call(core::wrap::add, 0, Defs{a, c});
+    auto bc = w.call(core::wrap::add, 0, Defs{b, c});
+    outln("ab: {, } - {, }", ab->local_vars(), ab->local_muts());
+    outln("ac: {, } - {, }", ac->local_vars(), ac->local_muts());
+    outln("bc: {, } - {, }", bc->local_vars(), bc->local_muts());
+}
