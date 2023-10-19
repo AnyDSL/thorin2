@@ -23,9 +23,12 @@ public:
     virtual Ref rewrite_mut(Def*);
     ///@}
 
+    void set_rewritten_mut_callback(std::function<void(Ref, Ref)> callback) { map_rewritten_mut_ = callback; }
+
 private:
     World& world_;
     Def2Def old2new_;
+    std::function<void(Ref, Ref)> map_rewritten_mut_;
 };
 
 /// Stops rewriting when leaving the Scope.

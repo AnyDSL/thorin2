@@ -632,6 +632,8 @@ private:
     }
 
     friend DefArray Def::reduce(const Def*);
+
+    std::deque<DefDefMap<Ref>> recursive_pe_cache_;
 };
 
 } // namespace thorin

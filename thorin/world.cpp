@@ -11,6 +11,8 @@
 #    include <unistd.h>
 #endif
 
+#include <deque>
+
 #include "thorin/check.h"
 #include "thorin/def.h"
 #include "thorin/driver.h"
@@ -190,6 +192,44 @@ Ref World::iapp(Ref callee, Ref arg) {
     return app(callee, arg);
 }
 
+namespace {
+///
+/// The CacheManager takes care of managing the cache for the recursive pe rewrite.
+/// We don't want to cache anything unnecessary or at the wrong level, so we build up a cache stack.
+/// A rewrite can thus always just look up in the hierarchy of the cache stack.
+///
+struct CacheManager {
+    /// Add a new cache hierarchy.
+    CacheManager(std::deque<DefDefMap<Ref>>& recursive_pe_cache)
+        : recursive_pe_cache_(recursive_pe_cache)
+        , place_(recursive_pe_cache_.size()) {
+        recursive_pe_cache_.emplace_back();
+    }
+    /// Clean up cache hierachy.
+    ~CacheManager() { recursive_pe_cache_.pop_back(); }
+
+    /// Get the cache level managed by this manager.
+    DefDefMap<Ref>& current_level() { return *(recursive_pe_cache_.begin() + place_); }
+    /// Get the cache level managed by this manager.
+    const DefDefMap<Ref>& current_level() const { return *(recursive_pe_cache_.begin() + place_); }
+
+    /// In all cache levels, find the entry for the given mutable and argument.
+    auto find(Ref old_mut, Ref arg) const -> DefDefMap<Ref>::const_iterator {
+        auto query = std::make_tuple(*old_mut, *arg);
+        for (const auto &cache_level : recursive_pe_cache_)
+            if (auto it = cache_level.find(query); it != cache_level.end()) return it;
+        return current_level().end();
+    }
+
+    /// Enables find(..) != end() for this manager.
+    auto end() const { return current_level().end(); }
+
+private:
+    std::deque<DefDefMap<Ref>>& recursive_pe_cache_;
+    std::size_t place_;
+};
+}
+
 Ref World::app(Ref callee, Ref arg) {
     Infer::eliminate(Array<Ref*>{&callee, &arg});
     auto pi = callee->type()->isa<Pi>();
@@ -204,8 +244,19 @@ Ref World::app(Ref callee, Ref arg) {
         Scope scope(lam);
         ScopeRewriter rw(scope);
         rw.map(lam->var(), arg);
+
+        CacheManager cacher{recursive_pe_cache_};
+        rw.set_rewritten_mut_callback([&](Ref old_mut, Ref new_mut) {
+            if (lam->body() == old_mut) {
+                cacher.current_level().emplace(std::make_tuple(*old_mut, *arg), new_mut);
+            }
+        });
         if (rw.rewrite(lam->filter()) == lit_tt()) {
             DLOG("partial evaluate: {} ({})", lam, arg);
+            if (auto new_mut = cacher.find(lam->body(), arg); new_mut != cacher.end()) {
+                DLOG("recursive, use cached: {}", new_mut->second->gid());
+                return new_mut->second;
+            }
             return rw.rewrite(lam->body());
         }
     }

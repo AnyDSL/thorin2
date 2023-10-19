@@ -34,6 +34,8 @@ Ref Rewriter::rewrite_mut(Def* old_mut) {
     auto new_type = rewrite(old_mut->type());
     auto new_mut  = old_mut->stub(world(), new_type);
     map(old_mut, new_mut);
+    if(map_rewritten_mut_)
+        map_rewritten_mut_(old_mut, new_mut);
 
     if (old_mut->is_set()) {
         for (size_t i = 0, e = old_mut->num_ops(); i != e; ++i) new_mut->set(i, rewrite(old_mut->op(i)));

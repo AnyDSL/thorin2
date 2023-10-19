@@ -1,0 +1,12 @@
+// RUN: %thorin %s --output-ll %t.ll -o - | FileCheck %s
+.plugin core;
+
+.fun rec(n :.Nat)(val1: .Idx n, val2: .Idx n): .Idx n = 
+    .con continue(val2: .Idx n) = 
+        rec n ((val1, val2), return);
+    .let end = %core.icmp.e (val2, 0: (.Idx n));
+    (continue, return)#end (%core.wrap.sub 0 (val2, val1));
+
+.fun .extern f(): .Idx 500 = rec 500 ((10: (.Idx 500), 490: (.Idx 500)), return);
+
+// CHECK-DAG: .con _{{[0-9_]+}} val2_{{[0-9_]+}}: .Idx 500
