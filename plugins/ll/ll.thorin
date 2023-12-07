@@ -1,0 +1,17 @@
+/// # The ll Plugin {#ll}
+///
+/// @see thorin::ll
+///
+/// [TOC]
+///
+/// ## Dependencies
+///
+.import compile;
+///
+/// This plugin contains the [LLVM](https://llvm.org/) backend that understands the following other plugins:
+/// * [clos](@ref clos)
+/// * [core](@ref core)
+/// * [math](@ref math)
+/// * [mem](@ref mem)
+///
+.ax %ll.emitter: %compile.Phase;

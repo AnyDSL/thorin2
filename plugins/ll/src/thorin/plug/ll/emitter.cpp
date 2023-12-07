@@ -1,4 +1,4 @@
-#include "thorin/plug/core/be/ll.h"
+#include "thorin/plug/ll/emitter.h"
 
 #include <cstdint>
 
@@ -32,7 +32,7 @@
 //   getelementptr ..., i1 1 == getelementptr .., i1 -1
 using namespace std::string_literals;
 
-namespace thorin::ll {
+namespace thorin::plug::ll {
 
 namespace clos = thorin::plug::clos;
 namespace core = thorin::plug::core;
@@ -1089,4 +1089,4 @@ int compile_and_run(World& world, std::string name, std::string args) {
     error("compilation failed");
 }
 
-} // namespace thorin::ll
+} // namespace thorin::plug::ll

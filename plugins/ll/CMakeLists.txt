@@ -1,0 +1,14 @@
+add_thorin_plugin(ll
+    SOURCES
+        src/thorin/plug/ll/ll.cpp
+        src/thorin/plug/ll/emitter.cpp
+    HEADERS
+        include/thorin/plug/ll/emitter.h
+        include/thorin/plug/ll/ll.h
+    INTERFACE
+        thorin_interface_clos
+        thorin_interface_core
+        thorin_interface_math
+        thorin_interface_mem
+    INSTALL
+)
