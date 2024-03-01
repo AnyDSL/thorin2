@@ -18,6 +18,8 @@ public:
     }
 };
 
+template<class T> bool to_left(const Def* d1, const Def* d2) { return !d1->isa<T>() && d2->isa<T>(); }
+
 } // namespace
 
 /*
@@ -39,24 +41,39 @@ const Def* Infer::find(const Def* def) {
     }
 
     assert((!res->isa<Infer>() || res != res->op(0)) && "an Infer shouldn't point to itself");
+    return res;
+}
 
-    // If we have an Infer as operand, try to get rid of it now.
-    // TODO why does this not work?
-    // if (res->isa_imm() && res->has_dep(Dep::Infer)) {
-    if (res->isa<Tuple>() || res->isa<Type>()) {
-        auto new_type = Ref::refer(res->type());
-        bool update   = new_type != res->type();
+Ref Infer::explode() {
+    if (is_set()) return {};
+    auto a = type()->isa_lit_arity();
+    if (!a) return {};
 
-        auto new_ops = DefVec(res->num_ops(), [res, &update](size_t i) {
-            auto r = Ref::refer(res->op(i));
-            update |= r != res->op(i);
-            return r;
-        });
+    auto n      = *a;
+    auto infers = DefVec(n);
+    auto& w     = world();
 
-        if (update) return res->rebuild(res->world(), new_type, new_ops);
+    if (auto arr = type()->isa_imm<Arr>(); arr && n > world().flags().scalerize_threshold) {
+        auto pack = w.pack(arr->shape(), w.mut_infer(arr->body()));
+        set(pack);
+        return pack;
     }
 
-    return res;
+    if (auto sigma = type()->isa_mut<Sigma>(); sigma && n >= 1 && sigma->var()) {
+        Scope scope(sigma);
+        ScopeRewriter rw(scope);
+        infers[0] = w.mut_infer(sigma->op(0));
+        for (size_t i = 1; i != n; ++i) {
+            rw.map(sigma->var(n, i - 1), infers[i - 1]);
+            infers[i] = w.mut_infer(rw.rewrite(sigma->op(i)));
+        }
+    } else {
+        for (size_t i = 0; i != n; ++i) infers[i] = w.mut_infer(type()->proj(n, i));
+    }
+
+    auto tuple = w.tuple(infers);
+    set(tuple);
+    return tuple;
 }
 
 bool Infer::eliminate(Vector<Ref*> refs) {
@@ -71,31 +88,29 @@ bool Infer::eliminate(Vector<Ref*> refs) {
     }
     return false;
 }
+
 /*
  * Check
  */
 
 #ifdef THORIN_ENABLE_CHECKS
-template<bool infer> bool Check::fail() {
-    if (infer && world().flags().break_on_alpha_unequal) fe::breakpoint();
+template<Check::Mode mode> bool Check::fail() {
+    if (mode == Mode::Relaxed && world().flags().break_on_alpha_unequal) fe::breakpoint();
     return false;
 }
 #endif
 
-template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
+template<Check::Mode mode> bool Check::alpha_(Ref r1, Ref r2) {
     auto d1 = *r1; // find
     auto d2 = *r2; // find
 
-    if (!d1 && !d2) return true;
-    if (!d1 || !d2) return fail<infer>();
-
     // It is only safe to check for pointer equality if there are no Vars involved.
-    // Otherwise, we have to look more thoroughly.
-    // Example: λx.x - λz.x
+    // Otherwise, we have to look more thoroughly. Example: λx.x - λz.x
     if (!d1->has_dep(Dep::Var) && !d2->has_dep(Dep::Var) && d1 == d2) return true;
     auto mut1 = d1->isa_mut();
     auto mut2 = d2->isa_mut();
     if (mut1 && mut2 && mut1 == mut2) return true;
+
     // Globals are HACKs and require additionaly HACKs:
     // Unless they are pointer equal (above) always consider them unequal.
     if (d1->isa<Global>() || d2->isa<Global>()) return false;
@@ -110,14 +125,19 @@ template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
     auto i1 = d1->isa_mut<Infer>();
     auto i2 = d2->isa_mut<Infer>();
 
-    if ((!i1 && !d1->is_set()) || (!i2 && !d2->is_set())) return fail<infer>();
+    if ((!i1 && !d1->is_set()) || (!i2 && !d2->is_set())) return fail<mode>();
 
-    if (infer) {
+    if (mode == Relaxed) {
         if (i1 && i2) {
-            // union by rank
-            if (i1->rank() < i2->rank()) std::swap(i1, i2); // make sure i1 is heavier or equal
-            i2->set(i1);                                    // make i1 new root
-            if (i1->rank() == i2->rank()) ++i1->rank();
+            // union by rank: attach the lighter node to the heavier one
+            if (i1->rank() < i2->rank())
+                i1->set(i2);
+            else if (i2->rank() < i1->rank())
+                i2->set(i1);
+            else { // pick i1 as new root
+                i2->set(i1);
+                ++i1->rank();
+            }
             return true;
         } else if (i1) {
             i1->set(d2);
@@ -129,34 +149,44 @@ template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
     }
 
     // normalize:
-    if ((d1->isa<Lit>() && !d2->isa<Lit>())      // Lit to right
-        || (!d1->isa<UMax>() && d2->isa<UMax>()) // UMax to left
-        || (d1->gid() > d2->gid()))              // smaller gid to left
+    if (to_left<Extract>(d1, d2) || to_left<Tuple>(d1, d2) || to_left<Pack>(d1, d2) || to_left<Sigma>(d1, d2)
+        || to_left<Arr>(d1, d2) || to_left<UMax>(d1, d2) || to_left<Type>(d1, d2) || to_left<Univ>(d1, d2))
         std::swap(d1, d2);
 
-    return alpha_internal<infer>(d1, d2);
+    return alpha_internal<mode>(d1, d2);
 }
 
-template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
-    if (!alpha_<infer>(d1->type(), d2->type())) return fail<infer>();
-    if (d1->isa<Top>() || d2->isa<Top>()) return infer;
-    if (!infer && (d1->isa_mut<Infer>() || d2->isa_mut<Infer>())) return fail<infer>();
-    if (!alpha_<infer>(d1->arity(), d2->arity())) return fail<infer>();
+template<Check::Mode mode> bool Check::alpha_internal(Ref d1, Ref d2) {
+    if (d1->isa<Univ>()) return d2->isa<Univ>();
+    if (auto type1 = d1->isa<Type>()) {
+        if (auto type2 = d2->isa<Type>()) return alpha_<mode>(type1->level(), type2->level());
+        return fail<mode>();
+    }
+
+    if (!alpha_<mode>(d1->type(), d2->type())) return fail<mode>();
+    if (d1->isa<Top>() || d2->isa<Top>()) return mode == Relaxed;
+    if (mode != Relaxed && (d1->isa_mut<Infer>() || d2->isa_mut<Infer>())) return fail<mode>();
+    if (!alpha_<mode>(d1->arity(), d2->arity())) return fail<mode>();
 
     // vars are equal if they appeared under the same binder
     if (auto mut1 = d1->isa_mut()) assert_emplace(vars_, mut1, d2->isa_mut());
     if (auto mut2 = d2->isa_mut()) assert_emplace(vars_, mut2, d1->isa_mut());
 
+    // TODO more than one level
+    if (auto extract = d1->isa<Extract>(); extract && !d2->isa<Extract>()) {
+        if (auto infer = extract->tuple()->isa_mut<Infer>()) infer->explode();
+    }
+
     if (auto ts = d1->isa<Tuple, Sigma>()) {
         size_t a = ts->num_ops();
         for (size_t i = 0; i != a; ++i)
-            if (!alpha_<infer>(ts->op(i), d2->proj(a, i))) return fail<infer>();
+            if (!alpha_<mode>(ts->op(i), d2->proj(a, i))) return fail<mode>();
         return true;
     } else if (auto pa = d1->isa<Pack, Arr>()) {
-        if (pa->node() == d2->node()) return alpha_<infer>(pa->ops().back(), d2->ops().back());
+        if (pa->node() == d2->node()) return alpha_<mode>(pa->ops().back(), d2->ops().back());
         if (auto a = pa->isa_lit_arity()) {
             for (size_t i = 0; i != *a; ++i)
-                if (!alpha_<infer>(pa->proj(*a, i), d2->proj(*a, i))) return fail<infer>();
+                if (!alpha_<mode>(pa->proj(*a, i), d2->proj(*a, i))) return fail<mode>();
             return true;
         }
     } else if (auto umax = d1->isa<UMax>(); umax && umax->has_dep(Dep::Infer) && !d2->isa<UMax>()) {
@@ -166,57 +196,322 @@ template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
         d1 = umax->rebuild(world(), umax->type(), umax->ops());
     }
 
-    if (d1->node() != d2->node() || d1->flags() != d2->flags() || d1->num_ops() != d2->num_ops()) return fail<infer>();
+    if (d1->node() != d2->node() || d1->flags() != d2->flags() || d1->num_ops() != d2->num_ops()) return fail<mode>();
 
     if (auto var1 = d1->isa<Var>()) {
         auto var2 = d2->as<Var>();
         if (auto i = vars_.find(var1->mut()); i != vars_.end()) return i->second == var2->mut();
-        if (auto i = vars_.find(var2->mut()); i != vars_.end()) return fail<infer>(); // var2 is bound
-        // both var1 and var2 are free: OK, when they are the same or in infer mode
-        return var1 == var2 || infer;
+        if (auto i = vars_.find(var2->mut()); i != vars_.end()) return fail<mode>(); // var2 is bound
+        // both var1 and var2 are free: OK, when they in Mode::Relaxed
+        return var1 == var2 || mode == Relaxed;
     }
 
     for (size_t i = 0, e = d1->num_ops(); i != e; ++i)
-        if (!alpha_<infer>(d1->op(i), d2->op(i))) return fail<infer>();
+        if (!alpha_<mode>(d1->op(i), d2->op(i))) return fail<mode>();
     return true;
 }
 
+bool Check::assignable(Ref type, Ref value) {
+    auto& world = type->world();
+    auto check  = Check(world, true);
+    if (check.assignable_(type, value)) return true;
+    if (check.rerun() && Infer::eliminate(Vector<Ref*>{&type, &value})) return Check(world).assignable_(type, value);
+    return Check(world).fail<Relaxed>();
+}
+
 bool Check::assignable_(Ref type, Ref val) {
-    auto val_ty = Ref::refer(val->type());
+    auto val_ty = Ref::refer(val->unfold_type());
     if (type == val_ty) return true;
 
-    if (auto infer = val->isa_mut<Infer>()) return alpha_<true>(type, infer->type());
+    if (auto infer = val->isa_mut<Infer>()) return alpha_<Relaxed>(type, infer->type());
 
     if (auto sigma = type->isa<Sigma>()) {
-        if (!alpha_<true>(type->arity(), val_ty->arity())) return fail<true>();
+        if (!alpha_<Relaxed>(type->arity(), val_ty->arity())) return fail<Relaxed>();
 
         size_t a = sigma->num_ops();
         auto red = sigma->reduce(val);
         for (size_t i = 0; i != a; ++i)
-            if (!assignable_(red[i], val->proj(a, i))) return fail<true>();
+            if (!assignable_(red[i], val->proj(a, i))) return fail<Relaxed>();
         return true;
     } else if (auto arr = type->isa<Arr>()) {
-        if (!alpha_<true>(type->arity(), val_ty->arity())) return fail<true>();
+        if (!alpha_<Relaxed>(type->arity(), val_ty->arity())) return fail<Relaxed>();
 
         if (auto a = Lit::isa(arr->arity())) {
             for (size_t i = 0; i != *a; ++i)
-                if (!assignable_(arr->proj(*a, i), val->proj(*a, i))) return fail<true>();
+                if (!assignable_(arr->proj(*a, i), val->proj(*a, i))) return fail<Relaxed>();
             return true;
         }
     } else if (auto vel = val->isa<Vel>()) {
         return assignable_(type, vel->value());
     }
 
-    return alpha_<true>(type, val_ty);
+    return alpha_<Relaxed>(type, val_ty);
 }
 
 Ref Check::is_uniform(Defs defs) {
     if (defs.empty()) return nullptr;
     auto first = defs.front();
     for (size_t i = 1, e = defs.size(); i != e; ++i)
-        if (!alpha<false>(first, defs[i])) return nullptr;
+        if (!alpha<Strict>(first, defs[i])) return nullptr;
     return first;
 }
+
+//------------------------------------------------------------------------------
+
+#ifdef THORIN_ENABLE_CHECKS
+Check2::Pair Check2::fail() {
+    if (world().flags().break_on_alpha_unequal) fe::breakpoint();
+    return False;
+}
+#endif
+
+Check2::Pair Check2::alpha_(Ref r1, Ref r2) {
+    auto d1 = *r1; // find
+    auto d2 = *r2; // find
+    assert(d1 && d2);
+
+    // It is only safe to check for pointer equality if there are no Vars involved.
+    // Otherwise, we have to look more thoroughly. Example: λx.x - λz.x
+    if (d1 == d2) {
+        if ((!d1->has_dep(Dep::Var) && !d2->has_dep(Dep::Var)) || (d1->isa_mut() && d2->isa_mut())) return {d1, d2};
+    }
+    if (d1->isa<Univ>()) return fail();
+
+    if (auto arr = d1->isa_mut<Arr>()) {
+        auto [a1, a2] = alpha_(arr->arity(), d2->arity());
+        if (auto a = Lit::isa(a1)) {
+            if (Scope::is_free(arr, arr->body()))
+                d1 = world().sigma(DefVec(*a, [&](size_t i) { return arr->reduce(world().lit_idx(*a, i)); }));
+            else
+                d1 = world().arr(arr->shape(), arr->body());
+        }
+    }
+
+    if (auto arr = d2->isa_mut<Arr>()) {
+        auto [a1, a2] = alpha_(arr->arity(), d2->arity());
+        if (auto a = Lit::isa(a2)) {
+            if (Scope::is_free(arr, arr->body()))
+                d2 = world().sigma(DefVec(*a, [&](size_t i) { return arr->reduce(world().lit_idx(*a, i)); }));
+            else
+                d2 = world().arr(arr->shape(), arr->body());
+        }
+    }
+
+    auto i1 = d1->isa_mut<Infer>();
+    auto i2 = d2->isa_mut<Infer>();
+
+    if (i1 && i2) {
+        // union by rank: attach the lighter node to the heavier one
+        if (i1->rank() < i2->rank()) {
+            i1->set(i2);
+            return {i2, i2};
+        } else if (i2->rank() < i1->rank()) {
+            i2->set(i1);
+            return {i1, i1};
+        } else { // pick i1 as new root
+            i2->set(i1);
+            ++i1->rank();
+            return {i1, i1};
+        }
+    } else if (i1) {
+        i1->set(d2);
+        return {d2, d2};
+    } else if (i2) {
+        i2->set(d1);
+        return {d1, d1};
+    }
+
+    if (!d1->is_set() || !d2->is_set()) return fail();
+
+    /*auto [it2, ins2] =*/old2new_.emplace(d2, Pair{d2, d1});
+    auto [it1, ins1] = old2new_.emplace(d1, Pair{d1, d2});
+    // assert(d1 == d2 || !(ins1 ^ ins2));
+    if (!ins1) return it1->second;
+
+    auto res = alpha_internal(d1, d2);
+    if (res == False) return fail();
+    old2new_[d1] = res;
+    old2new_[d2] = Pair{res.second, res.first};
+    return res;
+}
+
+Check2::Pair Check2::alpha_internal(Ref d1, Ref d2) {
+    if (auto type1 = d1->isa<Type>()) {
+        if (auto type2 = d2->isa<Type>()) {
+            auto [lvl1, lvl2] = alpha_(type1->level(), type2->level());
+            if (lvl1) return {world().type(lvl1), world().type(lvl2)};
+        }
+        return fail();
+    }
+
+    auto [type1, type2] = alpha_(d1->type(), d2->type());
+    if (!type1) return fail();
+
+    // if (mode != Relaxed && (d1->isa_mut<Infer>() || d2->isa_mut<Infer>())) return false;
+
+    if (auto mut1 = d1->isa_mut(); mut1 && d2->isa_imm()) {
+        if (auto imm1 = mut1->immutabilize()) return alpha_(imm1, d2);
+    } else if (auto mut2 = d2->isa_mut()) {
+        if (auto imm2 = mut2->immutabilize()) return alpha_(d1, imm2);
+    }
+
+    if (auto p = alpha_symm(d1, d2)) return *p;
+    if (auto p = alpha_symm(d2, d1)) return {p->second, p->first};
+
+    if (d1->node() != d2->node() || d1->flags() != d2->flags() || d1->num_ops() != d2->num_ops()) return fail();
+
+    size_t n = d1->num_ops();
+    DefVec new_ops1(n), new_ops2(n);
+    for (size_t i = 0; i != n; ++i) {
+        auto p = alpha_(d1->op(i), d2->op(i));
+        if (p == False) return fail();
+        std::tie(new_ops1[i], new_ops2[i]) = p;
+    }
+
+    auto mut1 = d1->isa_mut();
+    auto mut2 = d2->isa_mut();
+    if (mut1 && mut2) {
+        mut1->reset(new_ops1);
+        mut2->reset(new_ops2);
+    } else { // even if one is a mut, we can build an imm instead
+        d1 = d1->rebuild(world(), type1, new_ops1);
+        d2 = d2->rebuild(world(), type2, new_ops2);
+    }
+
+    return {d1, d2};
+}
+
+std::optional<Check2::Pair> Check2::alpha_symm(Ref d1, Ref d2) {
+    if (d1->isa<Top>()) {
+        return {Pair(d2, d2)};
+    } else if (auto var1 = d1->isa<Var>()) {
+        if (auto var2 = d2->isa<Var>()) {
+            // vars are equal if they appeared under the same binder
+            // TODO unify mutables?
+            if (auto i = old2new_.find(var1->mut()); i != old2new_.end())
+                return i->second.second == var2->mut() ? Pair{d1, d2} : fail();
+            if (auto i = old2new_.find(var2->mut()); i != old2new_.end()) return fail(); // var2 is bound
+            return {Pair(d1, d2)}; // both var1 and var2 are free: OK
+        }
+        return fail();
+    } else if (auto umax = d1->isa<UMax>(); umax && umax->has_dep(Dep::Infer)) {
+        if (auto l = d2->isa<Lit>()) {
+            // .umax(a, ?) =α l  =>  .umax(a, l)
+            size_t n = umax->num_ops();
+            DefVec new_ops(n);
+            for (size_t i = 0; i != n; ++i) {
+                if (auto inf = umax->op(i)->isa_mut<Infer>(); inf && !inf->is_set()) {
+                    inf->set(l);
+                    new_ops[i] = l;
+                } else {
+                    new_ops[i] = umax->op(i);
+                }
+            }
+            d1 = umax->rebuild(world(), umax->type(), umax->ops());
+            return alpha_(d1, l);
+        }
+    } else if (auto sigma = d1->isa<Sigma>()) {
+        if (auto arr = d2->isa<Arr>()) {
+            if (alpha_(sigma->arity(), arr->arity()) == False) return fail();
+            auto n = sigma->num_ops();
+            DefVec new_ops1(n), new_ops2(n);
+            for (size_t i = 0; i != n; ++i) {
+                auto p = alpha_(sigma->op(i), arr->proj(n, i));
+                if (p == False) return fail();
+                std::tie(new_ops1[i], new_ops2[i]) = p;
+            }
+
+            auto s1 = world().sigma(new_ops1)->set(sigma->dbg());
+            auto s2 = world().sigma(new_ops2)->set(arr->dbg());
+            return {Pair(s1, s2)};
+        }
+    } else if (auto tuple = d1->isa<Tuple>()) {
+        if (auto pack = d2->isa<Pack>()) {
+            if (alpha_(tuple->arity(), pack->arity()) == False) return fail();
+            auto n = tuple->num_ops();
+            DefVec new_ops1(n), new_ops2(n);
+            for (size_t i = 0; i != n; ++i) {
+                auto p = alpha_(tuple->op(i), pack->proj(n, i));
+                if (p == False) return fail();
+                std::tie(new_ops1[i], new_ops2[i]) = p;
+            }
+            auto t1 = world().tuple(new_ops1)->set(tuple->dbg());
+            auto t2 = world().tuple(new_ops2)->set(pack->dbg());
+            return {Pair(t1, t2)};
+        }
+    } else if (auto extract = d1->isa<Extract>(); extract && !d2->isa<Extract>()) {
+        if (auto idx = Lit::isa(extract->index())) {
+            auto n = *Lit::isa(Idx::size(extract->index()->type()));
+            if (auto elem = explode(extract->tuple(), n, *idx, d2)) {
+                auto [elem1, elem2] = alpha_(elem, d2);
+                // assert(elem1 == elem2);
+                if (!elem1) return fail();
+                return {Pair(elem1, elem1)};
+            }
+        } else {
+            // TODO arr explode
+            outln("TODO arr explode");
+        }
+    }
+
+    return {};
+}
+
+Ref Check2::explode(Ref tuple, nat_t n, nat_t i, Ref value) {
+    // outln("in: {} -- {}_{}", tuple, i, n);
+    if (auto infer = tuple->isa_mut<Infer>()) tuple = infer->explode();
+
+    if (auto tup = tuple->isa<Tuple>()) {
+        assert(tup->num_ops() == n);
+        // outln("out: {}", tup->op(i));
+        return tup->op(i);
+    } else if (auto extract = tuple->isa<Extract>(); extract && !value->isa<Extract>()) {
+        if (auto idx = Lit::isa(extract->index())) {
+            auto n   = *Lit::isa(extract->index()->type());
+            auto res = explode(extract->tuple(), n, *idx, value);
+            // outln("out: {}", tuple->op(i));
+            return res;
+        }
+    }
+
+    return {};
+}
+
+Check2::Pair Check2::assignable_(Ref type, Ref val) {
+    auto val_ty = Ref::refer(val->unfold_type());
+    if (type == val_ty) return {type, val};
+
+    if (auto infer = val->isa_mut<Infer>()) {
+        if (auto [ty, _] = alpha_(type, infer->type()); ty) return {ty, val};
+        return fail();
+    }
+
+    if (auto sigma = type->isa<Sigma>()) {
+        if (alpha_(type->arity(), val_ty->arity()) == False) return fail();
+
+        size_t a = sigma->num_ops();
+        auto red = sigma->reduce(val);
+        for (size_t i = 0; i != a; ++i)
+            if (assignable_(red[i], val->proj(a, i)) == False) return fail();
+        return {type, val};
+    } else if (auto arr = type->isa<Arr>()) {
+        if (alpha_(type->arity(), val_ty->arity()) == False) return fail();
+
+        if (auto a = Lit::isa(arr->arity())) {
+            for (size_t i = 0; i != *a; ++i)
+                if (assignable_(arr->proj(*a, i), val->proj(*a, i)) == False) return fail();
+            return {type, val};
+        }
+    } else if (auto vel = val->isa<Vel>()) {
+        return assignable_(type, vel->value());
+    }
+
+    auto [t, _] = alpha_(type, val_ty);
+    if (!t) return fail();
+    return {t, val};
+}
+
+//------------------------------------------------------------------------------
 
 /*
  * infer & check
@@ -224,7 +519,7 @@ Ref Check::is_uniform(Defs defs) {
 
 void Arr::check() {
     auto t = body()->unfold_type();
-    if (!Check::alpha(t, type()))
+    if (Check2::alpha(t, type()) == Check2::False)
         error(type(), "declared sort '{}' of array does not match inferred one '{}'", type(), t);
 }
 
@@ -233,10 +528,10 @@ void Sigma::check() {
 }
 
 void Lam::check() {
-    if (!Check::alpha(filter()->type(), world().type_bool()))
+    if (Check2::alpha(filter()->type(), world().type_bool()) == Check2::False)
         error(filter(), "filter '{}' of lambda is of type '{}' but must be of type '.Bool'", filter(),
               filter()->type());
-    if (!Check::assignable(codom(), body()))
+    if (Check2::assignable(codom(), body()) == Check2::False)
         error(body(), "body '{}' of lambda is of type \n'{}' but its codomain is of type \n'{}'", body(),
               body()->type(), codom());
 }
@@ -248,13 +543,15 @@ Ref Pi::infer(Ref dom, Ref codom) {
 
 void Pi::check() {
     auto t = infer(dom(), codom());
-    if (!Check::alpha(t, type()))
+    if (Check2::alpha(t, type()) == Check2::False)
         error(type(), "declared sort '{}' of function type does not match inferred one '{}'", type(), t);
 }
 
-#ifndef DOXYGEN
-template bool Check::alpha_<true>(Ref, Ref);
-template bool Check::alpha_<false>(Ref, Ref);
-#endif
+void Infer::check() {
+    // TODO We can't really check Infers while we are already checking stuff.
+    // This is causing some recursive headaches.
+    // if (!world().is_frozen() && !Check::assignable(type(), op()))
+    // error(type(), "cannot assign '{}' of type '{}' to Infer of type '{}'", op(), op()->type(), type());
+}
 
 } // namespace thorin
