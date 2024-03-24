@@ -217,11 +217,21 @@ Ref Parser::parse_primary_expr(std::string_view ctxt) {
         case Tag::D_paren_l: return parse_tuple_expr();
         case Tag::K_Type:    return parse_type_expr();
         case Tag::K_Univ:    lex(); return world().univ();
-        case Tag::K_Bool:    lex(); return world().type_bool();
         case Tag::K_Idx:     lex(); return world().type_idx();
         case Tag::K_Nat:     lex(); return world().type_nat();
         case Tag::K_ff:      lex(); return world().lit_ff();
         case Tag::K_tt:      lex(); return world().lit_tt();
+        case Tag::K_i1:      lex(); return world().lit_i1();
+        case Tag::K_i8:      lex(); return world().lit_i8();
+        case Tag::K_i16:     lex(); return world().lit_i16();
+        case Tag::K_i32:     lex(); return world().lit_i32();
+        case Tag::K_i64:     lex(); return world().lit_i64();
+        case Tag::K_Bool:
+        case Tag::K_I1:      lex(); return world().type_i1();
+        case Tag::K_I8:      lex(); return world().type_i8();
+        case Tag::K_I16:     lex(); return world().type_i16();
+        case Tag::K_I32:     lex(); return world().type_i32();
+        case Tag::K_I64:     lex(); return world().type_i64();
         case Tag::K_Cn:
         case Tag::K_Fn:
         case Tag::T_Pi:      return parse_pi_expr();
@@ -235,7 +245,7 @@ Ref Parser::parse_primary_expr(std::string_view ctxt) {
         case Tag::L_s:
         case Tag::L_u:
         case Tag::L_f:       return parse_lit_expr();
-        case Tag::L_c:       return world().lit_int(8, lex().lit_c());
+        case Tag::L_c:       return world().lit_i8(lex().lit_c());
         case Tag::L_i:       return lex().lit_i();
         case Tag::K_ins:     return parse_insert_expr();
         case Tag::K_ret:     return parse_ret_expr();
@@ -300,10 +310,7 @@ Ref Parser::parse_pack_expr() {
         auto pack = world().mut_pack(arr)->set(body);
         auto var  = pack->var();
         infer->set(var);
-        Scope scope(pack);
-        ScopeRewriter rw(scope);
-        rw.map(infer, var);
-        return pack->reset(rw.rewrite(pack->body()));
+        return pack->reset(pack->reduce(var)); // get rid of infer
     }
 
     auto shape = parse_expr("shape of a pack");
@@ -380,10 +387,10 @@ Pi* Parser::parse_pi_expr(Pi* outer) {
             expect(Tag::T_arrow, entity);
             codom = parse_expr("codomain of a dependent function type", Tok::Prec::Arrow);
             break;
-        case Tag::K_Cn: codom = world().type_bot(); break;
+        case Tag::K_Cn: codom = world().Bot(); break;
         case Tag::K_Fn: {
             expect(Tag::T_arrow, entity);
-            codom     = world().type_bot();
+            codom     = world().Bot();
             auto ret  = parse_expr("domain of return continuation", Tok::Prec::Arrow);
             auto pi   = pis.back();
             auto last = world().sigma({pi->dom(), world().cn(ret)});
@@ -464,12 +471,12 @@ Lam* Parser::parse_lam(bool is_decl) {
             break;
         }
         case Tag::K_cn:
-        case Tag::K_con: codom = world().type_bot(); break;
+        case Tag::K_con: codom = world().Bot(); break;
         case Tag::K_fn:
         case Tag::K_fun: {
             auto& [pi, lam, filter] = funs.back();
 
-            codom        = world().type_bot();
+            codom        = world().Bot();
             auto track   = tracker();
             auto ret     = accept(Tag::T_colon) ? parse_expr("return type of a "s + entity) : world().mut_infer_type();
             auto ret_loc = dom_p->loc() + track.loc();
@@ -480,22 +487,16 @@ Lam* Parser::parse_lam(bool is_decl) {
             // 1. ret depends on lam->var() instead of sigma->var(2, 0)
             pi->set_codom(ret);
             if (filter) lam->set_filter(filter);
-            Scope scope(lam);
-            ScopeRewriter rw(scope);
-            rw.map(lam->var(), sigma->var(2, 0));
+            auto old_var = lam->var()->as<Var>();
+            auto rw      = VarRewriter(old_var, sigma->var(2, 0));
             sigma->set(1, world().cn({rw.rewrite(ret)}));
 
             auto new_pi  = world().mut_pi(pi->type(), pi->is_implicit())->set(ret_loc)->set_dom(sigma);
             auto new_lam = world().mut_lam(new_pi);
             auto new_var = new_lam->var()->set(ret_loc);
 
-            if (filter) {
-                // 2. filter depends on lam->var() instead of new_lam->var(2, 0)
-                ScopeRewriter rw(scope);
-                rw.map(lam->var(), new_lam->var(2, 0)->set(lam->var()->dbg()));
-                auto new_filter = rw.rewrite(filter);
-                filter          = new_filter;
-            }
+            // 2. filter depends on lam->var() instead of new_lam->var(2, 0)
+            if (filter) filter = rewrite(filter, lam, new_lam->var(2, 0)->set(lam->var()->dbg()));
 
             pi->unset();
             pi = new_pi;
@@ -513,13 +514,9 @@ Lam* Parser::parse_lam(bool is_decl) {
     first->set(dbg.sym);
 
     for (auto [pi, lam, _] : funs | std::ranges::views::reverse) {
-        // First, connect old codom to lam. Otherwise, scope will not find it.
+        // First, connect old codom to lam. Otherwise, scope will not find it. Then, rewrite.
         pi->set_codom(codom);
-        Scope scope(lam);
-        ScopeRewriter rw(scope);
-        rw.map(lam->var(), pi->var()->set(lam->var()->dbg()));
-
-        // Now update.
+        auto rw  = VarRewriter(lam->var()->as<Var>(), pi->var()->set(lam->var()->dbg()));
         auto dom = pi->dom();
         codom    = rw.rewrite(codom);
         pi->reset({dom, codom});

@@ -2,8 +2,6 @@
 
 #include <thorin/rewrite.h>
 
-#include <thorin/analyses/scope.h>
-
 #include "thorin/plug/direct/autogen.h"
 
 namespace thorin::plug::direct {
@@ -20,7 +18,7 @@ inline const Def* op_cps2ds_dep(const Def* f) {
     world.DLOG("T: {}", T);
     world.DLOG("U: {}", U);
 
-    auto Uf = world.mut_lam(world.pi(T, world.type()))->set("Uf");
+    auto Uf = world.mut_lam(T, world.type())->set("Uf");
     world.DLOG("Uf: {} : {}", Uf, Uf->type());
 
     const Def* rewritten_codom;
@@ -28,9 +26,8 @@ inline const Def* op_cps2ds_dep(const Def* f) {
     if (auto f_ty_sig = f_ty->dom()->isa_mut<Sigma>()) {
         auto dom_var = f_ty_sig->var((nat_t)0);
         world.DLOG("dom_var: {}", dom_var);
-        Scope r_scope{f_ty_sig};
         auto closed_dom_var = Uf->var();
-        rewritten_codom     = thorin::rewrite(U, dom_var, closed_dom_var, r_scope);
+        rewritten_codom     = rewrite(U, f_ty_sig, closed_dom_var);
     } else {
         rewritten_codom = U;
     }

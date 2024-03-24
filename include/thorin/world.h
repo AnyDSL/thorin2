@@ -130,15 +130,19 @@ public:
     };
     ///@}
 
-#ifdef THORIN_ENABLE_CHECKS
     /// @name Debugging Features
     ///@{
-    Ref gid2def(u32 gid);
+#ifdef THORIN_ENABLE_CHECKS
     const auto& breakpoints() { return state_.breakpoints; }
-    /// Trigger breakpoint in your debugger when creating Def with Def::gid @p gid.
-    void breakpoint(u32 gid);
-    ///@}
+
+    Ref gid2def(u32 gid);     ///< Lookup Def by @p gid.
+    void breakpoint(u32 gid); ///< Trigger breakpoint in your debugger when creating Def with Def::gid @p gid.
+
+    World& verify(); ///< Verifies that all externals() and annexes() are Def::is_closed(), if `THORIN_ENABLE_CHECKS`.
+#else
+    World& verify() { return *this; }
 #endif
+    ///@}
 
     /// @name Manage Nodes
     ///@{
@@ -146,6 +150,7 @@ public:
     const auto& externals() const { return move_.externals; }
     void make_external(Def* def) {
         assert(!def->is_external());
+        assert(def->is_closed());
         def->external_ = true;
         assert_emplace(move_.externals, def->sym(), def);
     }
@@ -225,19 +230,27 @@ public:
 
     /// @name Pi
     ///@{
-    const Pi* pi(Ref dom, Ref codom, bool implicit = false) {
-        return unify<Pi>(2, Pi::infer(dom, codom), dom, codom, implicit);
-    }
-    const Pi* pi(Defs dom, Ref codom, bool implicit = false) { return pi(sigma(dom), codom, implicit); }
+    // clang-format off
+    const Pi* pi(Ref  dom, Ref  codom, bool implicit = false) { return unify<Pi>(2, Pi::infer(dom, codom), dom, codom, implicit); }
+    const Pi* pi(Defs dom, Ref  codom, bool implicit = false) { return pi(sigma(dom), codom, implicit); }
+    const Pi* pi(Ref  dom, Defs codom, bool implicit = false) { return pi(dom, sigma(codom), implicit); }
+    const Pi* pi(Defs dom, Defs codom, bool implicit = false) { return pi(sigma(dom), sigma(codom), implicit); }
     Pi* mut_pi(Ref type, bool implicit = false) { return insert<Pi>(2, type, implicit); }
+    // clang-format on
     ///@}
 
     /// @name Cn
     /// Pi with codom thorin::Bot%tom
     ///@{
+    // clang-format off
     const Pi* cn() { return cn(sigma()); }
-    const Pi* cn(Ref dom) { return pi(dom, type_bot()); }
-    const Pi* cn(Defs doms) { return cn(sigma(doms)); }
+    const Pi* cn(Ref  dom            ) { return pi(      dom ,         Bot()); }
+    const Pi* cn(Defs dom            ) { return cn(sigma(dom)               ); }
+    const Pi* fn(Ref  dom, Ref  codom) { return cn({     dom ,    cn(codom)}); }
+    const Pi* fn(Defs dom, Ref  codom) { return fn(sigma(dom),        codom ); }
+    const Pi* fn(Ref  dom, Defs codom) { return fn(      dom ,  sigma(codom)); }
+    const Pi* fn(Defs dom, Defs codom) { return fn(sigma(dom ), sigma(codom)); }
+    // clang-format on
     ///@}
 
     /// @name Lam
@@ -247,7 +260,29 @@ public:
         return std::get<const Def*>(filter);
     }
     const Lam* lam(const Pi* pi, Lam::Filter f, Ref body) { return unify<Lam>(2, pi, filter(f), body); }
-    Lam* mut_lam(const Pi* cn) { return insert<Lam>(2, cn); }
+    Lam* mut_lam(const Pi* pi) { return insert<Lam>(2, pi); }
+    // clang-format off
+    const Lam* con(Ref  dom,             Lam::Filter f, Ref body) { return unify<Lam>(2, cn(dom        ), filter(f), body); }
+    const Lam* con(Defs dom,             Lam::Filter f, Ref body) { return unify<Lam>(2, cn(dom        ), filter(f), body); }
+    const Lam* lam(Ref  dom, Ref  codom, Lam::Filter f, Ref body) { return unify<Lam>(2, pi(dom,  codom), filter(f), body); }
+    const Lam* lam(Defs dom, Ref  codom, Lam::Filter f, Ref body) { return unify<Lam>(2, pi(dom,  codom), filter(f), body); }
+    const Lam* lam(Ref  dom, Defs codom, Lam::Filter f, Ref body) { return unify<Lam>(2, pi(dom,  codom), filter(f), body); }
+    const Lam* lam(Defs dom, Defs codom, Lam::Filter f, Ref body) { return unify<Lam>(2, pi(dom,  codom), filter(f), body); }
+    const Lam* fun(Ref  dom, Ref  codom, Lam::Filter f, Ref body) { return unify<Lam>(2, fn(dom , codom), filter(f), body); }
+    const Lam* fun(Defs dom, Ref  codom, Lam::Filter f, Ref body) { return unify<Lam>(2, fn(dom,  codom), filter(f), body); }
+    const Lam* fun(Ref  dom, Defs codom, Lam::Filter f, Ref body) { return unify<Lam>(2, fn(dom,  codom), filter(f), body); }
+    const Lam* fun(Defs dom, Defs codom, Lam::Filter f, Ref body) { return unify<Lam>(2, fn(dom,  codom), filter(f), body); }
+    Lam* mut_con(Ref  dom            ) { return insert<Lam>(2, cn(dom       )); }
+    Lam* mut_con(Defs dom            ) { return insert<Lam>(2, cn(dom       )); }
+    Lam* mut_lam(Ref  dom, Ref  codom) { return insert<Lam>(2, pi(dom, codom)); }
+    Lam* mut_lam(Defs dom, Ref  codom) { return insert<Lam>(2, pi(dom, codom)); }
+    Lam* mut_lam(Ref  dom, Defs codom) { return insert<Lam>(2, pi(dom, codom)); }
+    Lam* mut_lam(Defs dom, Defs codom) { return insert<Lam>(2, pi(dom, codom)); }
+    Lam* mut_fun(Ref  dom, Ref  codom) { return insert<Lam>(2, fn(dom, codom)); }
+    Lam* mut_fun(Defs dom, Ref  codom) { return insert<Lam>(2, fn(dom, codom)); }
+    Lam* mut_fun(Ref  dom, Defs codom) { return insert<Lam>(2, fn(dom, codom)); }
+    Lam* mut_fun(Defs dom, Defs codom) { return insert<Lam>(2, fn(dom, codom)); }
+    // clang-format on
     Lam* exit() { return data_.exit; } ///< Used as a dummy exit node within Scope.
     ///@}
 
@@ -334,6 +369,12 @@ public:
     const Lit* lit_nat_1() { return data_.lit_nat_1; }
     const Lit* lit_nat_max() { return data_.lit_nat_max; }
     const Lit* lit_0_1() { return data_.lit_0_1; }
+    // clang-format off
+    const Lit* lit_i1()   { return lit_nat(Idx::bitwidth2size(1)); };
+    const Lit* lit_i8()   { return lit_nat(Idx::bitwidth2size(8)); };
+    const Lit* lit_i16()  { return lit_nat(Idx::bitwidth2size(16)); };
+    const Lit* lit_i32()  { return lit_nat(Idx::bitwidth2size(32)); };
+    const Lit* lit_i64()  { return lit_nat(Idx::bitwidth2size(64)); };
     /// Constructs a Lit of type Idx of size @p size.
     /// @note `size = 0` means `2^64`.
     const Lit* lit_idx(nat_t size, u64 val) { return lit(type_idx(size), val); }
@@ -346,6 +387,14 @@ public:
     /// Constructs a Lit @p of type Idx of size $2^width$.
     /// `val = 64` will be automatically converted to size `0` - the encoding for $2^64$.
     const Lit* lit_int(nat_t width, u64 val) { return lit_idx(Idx::bitwidth2size(width), val); }
+    const Lit* lit_i1 (bool val) { return lit_int(1,  u64(val)); }
+    const Lit* lit_i2 (u8   val) { return lit_int(2,  u64(val)); }
+    const Lit* lit_i4 (u8   val) { return lit_int(4,  u64(val)); }
+    const Lit* lit_i8 (u8   val) { return lit_int(8,  u64(val)); }
+    const Lit* lit_i16(u16  val) { return lit_int(16, u64(val)); }
+    const Lit* lit_i32(u32  val) { return lit_int(32, u64(val)); }
+    const Lit* lit_i64(u64  val) { return lit_int(64, u64(val)); }
+    // clang-format on
 
     /// Constructs a Lit of type Idx of size @p mod.
     /// The value @p val will be adjusted modulo @p mod.
@@ -364,7 +413,7 @@ public:
     Ref ext(Ref type);
     Ref bot(Ref type) { return ext<false>(type); }
     Ref top(Ref type) { return ext<true>(type); }
-    Ref type_bot() { return data_.type_bot; }
+    Ref Bot() { return data_.Bot; }
     Ref top_nat() { return data_.top_nat; }
     template<bool Up> TBound<Up>* mut_bound(Ref type, size_t size) { return insert<TBound<Up>>(size, type, size); }
     /// A *mut*able Bound of Type @p l%evel.
@@ -404,7 +453,16 @@ public:
     /// Constructs a type Idx of size $2^width$.
     /// `width = 64` will be automatically converted to size `0` - the encoding for $2^64$.
     Ref type_int(nat_t width) { return type_idx(lit_nat(Idx::bitwidth2size(width))); }
+    // clang-format off
     Ref type_bool() { return data_.type_bool; }
+    Ref type_i1()   { return data_.type_bool; }
+    Ref type_i2()   { return type_int( 2);    };
+    Ref type_i4()   { return type_int( 4);    };
+    Ref type_i8()   { return type_int( 8);    };
+    Ref type_i16()  { return type_int(16);    };
+    Ref type_i32()  { return type_int(32);    };
+    Ref type_i64()  { return type_int(64);    };
+    // clang-format on
     ///@}
 
     /// @name Cope with implicit Arguments
@@ -419,6 +477,21 @@ public:
     {
         return iapp(callee, lit_nat((nat_t)arg));
     }
+
+    /// @name Vars & Muts
+    ///@{
+    /// Manges sets of Vars and Muts.
+    [[nodiscard]] Vars vars(const Var* var) { return move_.vars.singleton(var); }
+    [[nodiscard]] Muts muts(Def* mut) { return move_.muts.singleton(mut); }
+    [[nodiscard]] Vars merge(Vars a, Vars b) { return move_.vars.merge(a, b); }
+    [[nodiscard]] Muts merge(Muts a, Muts b) { return move_.muts.merge(a, b); }
+    [[nodiscard]] Vars insert(Vars vars, const Var* var) { return move_.vars.insert(vars, var); }
+    [[nodiscard]] Muts insert(Muts muts, Def* mut) { return move_.muts.insert(muts, mut); }
+    [[nodiscard]] Vars erase(Vars vars, const Var* var) { return move_.vars.erase(vars, var); }
+    [[nodiscard]] Muts erase(Muts muts, Def* mut) { return move_.muts.erase(muts, mut); }
+    [[nodiscard]] bool has_intersection(Vars v1, Vars v2) { return move_.vars.has_intersection(v1, v2); }
+    [[nodiscard]] bool has_intersection(Muts m1, Muts m2) { return move_.muts.has_intersection(m1, m2); }
+    ///@}
 
     // clang-format off
     template<class Id, class... Args> const Def* call(Id id, Args&&... args) { return call_(annex(id),   std::forward<Args>(args)...); }
@@ -459,7 +532,7 @@ private:
     /// @name Put into Sea of Nodes
     ///@{
     template<class T, class... Args> const T* unify(size_t num_ops, Args&&... args) {
-        auto state = arena_.state();
+        auto state = move_.arena.state();
         auto def   = allocate<T>(num_ops, std::forward<Args&&>(args)...);
         if (auto loc = emit_loc()) def->set(loc);
         assert(!def->isa_mut());
@@ -488,7 +561,7 @@ private:
 
     template<class T> void deallocate(fe::Arena::State state, const T* ptr) {
         ptr->~T();
-        arena_.deallocate(state);
+        move_.arena.deallocate(state);
     }
 
     template<class T, class... Args> T* insert(size_t num_ops, Args&&... args) {
@@ -518,9 +591,9 @@ private:
         static_assert(sizeof(Def) == sizeof(T),
                       "you are not allowed to introduce any additional data in subclasses of Def");
         Lock lock;
-        arena_.align(alignof(T));
-        size_t num_bytes = sizeof(Def) + sizeof(void*) * num_ops;
-        auto ptr         = arena_.allocate(num_bytes);
+        move_.arena.align(alignof(T));
+        size_t num_bytes = sizeof(Def) + sizeof(uintptr_t) * num_ops;
+        auto ptr         = move_.arena.allocate(num_bytes);
         auto res         = new (ptr) T(std::forward<Args&&>(args)...);
         assert(res->num_ops() == num_ops);
         return res;
@@ -529,7 +602,6 @@ private:
 
     Driver* driver_;
     State state_;
-    fe::Arena arena_;
 
     struct SeaHash {
         size_t operator()(const Def* def) const { return def->hash(); }
@@ -542,16 +614,22 @@ private:
     struct Move {
         absl::btree_map<flags_t, const Def*> annexes;
         absl::btree_map<Sym, Def*> externals;
+        fe::Arena arena;
         absl::flat_hash_set<const Def*, SeaHash, SeaEq> defs;
+        Pool<const Var*> vars;
+        Pool<Def*> muts;
         DefDefMap<DefVec> cache;
 
         friend void swap(Move& m1, Move& m2) noexcept {
             using std::swap;
             // clang-format off
-            swap(m1.annexes,   m2.annexes);
-            swap(m1.externals, m2.externals);
-            swap(m1.defs,      m2.defs);
-            swap(m1.cache,     m2.cache);
+            swap(m1.annexes,    m2.annexes);
+            swap(m1.externals,  m2.externals);
+            swap(m1.arena,      m2.arena);
+            swap(m1.defs,       m2.defs);
+            swap(m1.vars,       m2.vars);
+            swap(m1.muts,       m2.muts);
+            swap(m1.cache,      m2.cache);
             // clang-format on
         }
     } move_;
@@ -560,7 +638,7 @@ private:
         const Univ* univ;
         const Type* type_0;
         const Type* type_1;
-        const Bot* type_bot;
+        const thorin::Bot* Bot;
         const Def* type_bool;
         const Top* top_nat;
         const Sigma* sigma;
@@ -583,7 +661,6 @@ private:
         using std::swap;
         // clang-format off
         swap(w1.state_, w2.state_);
-        swap(w1.arena_, w2.arena_);
         swap(w1.data_,  w2.data_ );
         swap(w1.move_,  w2.move_ );
         // clang-format on

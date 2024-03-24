@@ -43,11 +43,11 @@ World::World(Driver* driver, const State& state)
     data_.lit_univ_1  = lit_univ(1);
     data_.type_0      = type(lit_univ_0());
     data_.type_1      = type(lit_univ_1());
-    data_.type_bot    = insert<Bot>(0, type());
+    data_.Bot         = insert<thorin::Bot>(0, type());
     data_.sigma       = insert<Sigma>(0, type(), Defs{})->as<Sigma>();
     data_.tuple       = insert<Tuple>(0, sigma(), Defs{})->as<Tuple>();
-    data_.type_nat    = insert<Nat>(0, *this);
-    data_.type_idx    = insert<Idx>(0, pi(type_nat(), type()));
+    data_.type_nat    = insert<thorin::Nat>(0, *this);
+    data_.type_idx    = insert<thorin::Idx>(0, pi(type_nat(), type()));
     data_.top_nat     = insert<Top>(0, type_nat());
     data_.lit_nat_0   = lit_nat(0);
     data_.lit_nat_1   = lit_nat(1);
@@ -56,7 +56,7 @@ World::World(Driver* driver, const State& state)
     data_.lit_bool[0] = lit_idx(2, 0_u64);
     data_.lit_bool[1] = lit_idx(2, 1_u64);
     data_.lit_nat_max = lit_nat(nat_t(-1));
-    data_.exit        = mut_lam(cn(type_bot()))->set(sym("exit"));
+    data_.exit        = mut_lam(cn(Bot()))->set(sym("exit"));
 }
 
 World::World(Driver* driver)
@@ -155,7 +155,8 @@ Ref World::var(Ref type, Def* mut) {
         if (auto l = Lit::isa(s); l && l == 1) return lit_0_1();
     }
 
-    return unify<Var>(1, type, mut);
+    if (auto var = mut->var_) return var;
+    return mut->var_ = unify<Var>(1, type, mut);
 }
 
 Ref World::iapp(Ref callee, Ref arg) {
@@ -190,9 +191,7 @@ Ref World::app(Ref callee, Ref arg) {
 
     if (auto imm = callee->isa_imm<Lam>()) return imm->body();
     if (auto lam = callee->isa_mut<Lam>(); lam && lam->is_set() && lam->filter() != lit_ff()) {
-        Scope scope(lam);
-        ScopeRewriter rw(scope);
-        rw.map(lam->var(), arg);
+        VarRewriter rw(lam->var(), arg);
         if (rw.rewrite(lam->filter()) == lit_tt()) {
             DLOG("partial evaluate: {} ({})", lam, arg);
             return rw.rewrite(lam->body());
@@ -272,7 +271,7 @@ Ref World::tuple(Ref type, Defs ops) {
 
 Ref World::tuple(Sym sym) {
     DefVec defs;
-    std::ranges::transform(sym, std::back_inserter(defs), [this](auto c) { return lit_int(8, c); });
+    std::ranges::transform(sym, std::back_inserter(defs), [this](auto c) { return lit_i8(c); });
     return tuple(defs);
 }
 
@@ -320,8 +319,7 @@ Ref World::extract(Ref d, Ref index) {
 
         if (auto sigma = type->isa<Sigma>()) {
             if (auto mut_sigma = sigma->isa_mut<Sigma>()) {
-                Scope scope(mut_sigma);
-                auto t = rewrite(sigma->op(*i), mut_sigma->var(), d, scope);
+                auto t = VarRewriter(mut_sigma->var(), d).rewrite(sigma->op(*i));
                 return unify<Extract>(2, t, d, index);
             }
 
@@ -461,7 +459,7 @@ template<bool Up> Ref World::bound(Defs ops) {
     auto kind = umax<Sort::Type>(ops);
 
     // has ext<Up> value?
-    if (std::ranges::any_of(ops, [&](Ref op) { return Up ? bool(op->isa<Top>()) : bool(op->isa<Bot>()); }))
+    if (std::ranges::any_of(ops, [&](Ref op) { return Up ? bool(op->isa<Top>()) : bool(op->isa<thorin::Bot>()); }))
         return ext<Up>(kind);
 
     // ignore: ext<!Up>
@@ -548,6 +546,12 @@ Ref World::gid2def(u32 gid) {
     auto i = std::ranges::find_if(move_.defs, [=](auto def) { return def->gid() == gid; });
     if (i == move_.defs.end()) return nullptr;
     return *i;
+}
+
+World& World::verify() {
+    for (auto [_, mut] : externals()) assert(mut->is_closed() && mut->is_set());
+    for (auto [_, annex] : annexes()) assert(annex->is_closed());
+    return *this;
 }
 
 #endif
