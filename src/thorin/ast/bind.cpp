@@ -136,8 +136,13 @@ void DeclExpr::bind(Scopes& s) const {
 }
 
 void ArrowExpr::bind(Scopes& s) const {
-    dom()->bind(s);
+    s.push();
+    if (auto sigma = dom()->isa<SigmaExpr>())
+        sigma->ptrn()->bind(s);
+    else
+        dom()->bind(s);
     codom()->bind(s);
+    s.pop();
 }
 
 void PiExpr::Dom::bind(Scopes& s, bool quiet) const {

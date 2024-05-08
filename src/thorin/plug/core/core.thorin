@@ -62,7 +62,7 @@
 ///
 /// Creates a literal of type `.Idx s` from `l` while obeying mode `m`.
 ///
-.ax %core.idx: Π[s: .Nat][m: .Nat][l: .Nat] -> .Idx s, normalize_idx;
+.ax %core.idx: [s: .Nat] -> [m: .Nat] -> [l: .Nat] -> .Idx s, normalize_idx;
 ///
 /// ### %core.bit1
 ///
@@ -265,6 +265,7 @@
 /// * `f`: zipping function that expects an `n_i`-tuple whose elements correspond to `Is` and yields an `n_o`-tuple whose element types correspond to `Os`
 /// * `is`: the actual input tensors
 ///
-.ax %core.zip: Π [r: .Nat, s: «r; .Nat»]
-                 [n_i: .Nat, Is: «n_i; *», n_o: .Nat, Os: «n_o; *», f: «i: n_i; Is#i» -> «o: n_o; Os#o»]
-                 [is: «i: n_i; «s; Is#i»»] -> «o: n_o; «s; Os#o»», normalize_zip;
+.ax %core.zip: [r: .Nat, s: «r; .Nat»]
+            -> [n_i: .Nat, Is: «n_i; *», n_o: .Nat, Os: «n_o; *», f: «i: n_i; Is#i» -> «o: n_o; Os#o»]
+            -> [is: «i: n_i; «s; Is#i»»]
+            -> «o: n_o; «s; Os#o»», normalize_zip;

@@ -179,6 +179,15 @@ Ref DeclExpr::emit_(Emitter& e) const {
 }
 
 Ref ArrowExpr::emit_(Emitter& e) const {
+    if (auto sigma = dom()->isa<SigmaExpr>()) {
+        auto pi    = e.world().mut_pi(e.world().type_infer_univ(), false);
+        auto dom_t = sigma->ptrn()->emit_type(e);
+        pi->set_dom(dom_t);
+        sigma->ptrn()->emit_value(e, pi->var());
+        auto c = codom()->emit(e);
+        pi->set_codom(c);
+        return pi;
+    }
     auto d = dom()->emit(e);
     auto c = codom()->emit(e);
     return e.world().pi(d, c);
