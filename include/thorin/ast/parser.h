@@ -89,7 +89,6 @@ private:
     Ptr<Expr> parse_ret_expr();
     Ptr<Expr> parse_pi_expr();
     Ptr<Expr> parse_lam_expr();
-    Ptr<Expr> parse_sigma_expr();
     Ptr<Expr> parse_tuple_expr();
     Ptr<Expr> parse_insert_expr();
     ///@}

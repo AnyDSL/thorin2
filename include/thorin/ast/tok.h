@@ -78,7 +78,6 @@ constexpr auto Num_Keys = size_t(0) THORIN_KEY(CODE);
     m(D_quote_l,    "«")               \
     m(D_quote_r,    "»")               \
     /* further tokens */               \
-    m(T_Pi,         "Π")               \
     m(T_arrow,      "→")               \
     m(T_assign,     "=")               \
     m(T_at,         "@")               \

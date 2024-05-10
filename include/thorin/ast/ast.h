@@ -133,10 +133,10 @@ protected:
         : Node(loc) {}
 
 public:
-    Ref emit(Emitter&) const;
+    Ref emit(Emitter&) const; ///< Sets Loc and invokes Expr::emit_.
     virtual void bind(Scopes&) const = 0;
     virtual Ref emit_decl(Emitter&, Ref /*type*/) const { fe::unreachable(); }
-    virtual void emit_body(Emitter&, Ref /*decl*/) const { fe::unreachable(); }
+    virtual Ref emit_body(Emitter&, Def* /*decl*/) const { fe::unreachable(); }
 
 private:
     virtual Ref emit_(Emitter&) const = 0;
@@ -264,8 +264,8 @@ public:
 
     void bind(Scopes&, bool quiet = false) const override;
     Ref emit_type(Emitter&) const override;
-    Ref emit_decl(Emitter&, Ref type) const;
-    Ref emit_body(Emitter&, Ref decl) const;
+    Ref emit_decl(Emitter&, Ref) const;
+    Ref emit_body(Emitter&, Def*) const;
     std::ostream& stream(Tab&, std::ostream&) const override;
 
 private:
@@ -422,6 +422,8 @@ private:
     const Expr* codom() const { return codom_.get(); }
 
     void bind(Scopes&) const override;
+    Ref emit_decl(Emitter&, Ref) const override;
+    Ref emit_body(Emitter&, Def*) const override;
     std::ostream& stream(Tab&, std::ostream&) const override;
 
 private:
@@ -485,8 +487,8 @@ private:
     const Expr* codom() const { return codom_.get(); }
 
     void bind(Scopes&) const override;
-    Ref emit_decl(Emitter&, Ref type) const override;
-    void emit_body(Emitter&, Ref decl) const override;
+    Ref emit_decl(Emitter&, Ref) const override;
+    Ref emit_body(Emitter&, Def*) const override;
     std::ostream& stream(Tab&, std::ostream&) const override;
 
 private:
@@ -505,8 +507,8 @@ public:
     const LamDecl* lam() const { return lam_.get(); }
 
     void bind(Scopes&) const override;
-    Ref emit_decl(Emitter&, Ref type) const override;
-    void emit_body(Emitter&, Ref decl) const override;
+    Ref emit_decl(Emitter&, Ref) const override;
+    Ref emit_body(Emitter&, Def*) const override;
     std::ostream& stream(Tab&, std::ostream&) const override;
 
 private:
@@ -570,21 +572,24 @@ private:
 /// Just wraps TuplePtrn as Expr.
 class SigmaExpr : public Expr {
 public:
-    SigmaExpr(Ptr<TuplePtrn>&& ptrn)
+    SigmaExpr(Ptr<TuplePtrn>&& ptrn, bool is_implicit = false)
         : Expr(ptrn->loc())
-        , ptrn_(std::move(ptrn)) {}
+        , ptrn_(std::move(ptrn))
+        , is_implicit_(is_implicit) {}
 
     const TuplePtrn* ptrn() const { return ptrn_.get(); }
+    bool is_implicit() const { return is_implicit_; }
 
     void bind(Scopes&) const override;
-    Ref emit_decl(Emitter&, Ref type) const override;
-    void emit_body(Emitter&, Ref decl) const override;
+    Ref emit_decl(Emitter&, Ref) const override;
+    Ref emit_body(Emitter&, Def*) const override;
     std::ostream& stream(Tab&, std::ostream&) const override;
 
 private:
     Ref emit_(Emitter&) const override;
 
     Ptr<TuplePtrn> ptrn_;
+    bool is_implicit_;
 
     friend Ptr<Ptrn> Ptrn::to_ptrn(Ptr<Expr>&&);
 };
@@ -784,7 +789,7 @@ public:
 
     void emit(Emitter&) const override;
     virtual void emit_decl(Emitter&) const;
-    virtual void emit_body(Emitter&) const;
+    virtual Ref emit_body(Emitter&) const;
 
     std::ostream& stream(Tab&, std::ostream&) const override;
 
@@ -851,7 +856,7 @@ public:
     void bind_decl(Scopes&) const override;
     void bind_body(Scopes&) const override;
     void emit_decl(Emitter&) const override;
-    void emit_body(Emitter&) const override;
+    Ref emit_body(Emitter&) const override;
     std::ostream& stream(Tab&, std::ostream&) const override;
 
 private:

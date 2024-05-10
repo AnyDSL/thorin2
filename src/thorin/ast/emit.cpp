@@ -76,12 +76,12 @@ Ref GrpPtrn::emit_type(Emitter& e) const { return id()->emit_type(e); }
 
 Ref TuplePtrn::emit_type(Emitter& e) const { return emit_body(e, {}); }
 
-Ref TuplePtrn::emit_body(Emitter& e, Ref decl) const {
+Ref TuplePtrn::emit_body(Emitter& e, Def* decl) const {
     auto _ = e.world().push(loc());
     auto n = num_ptrns();
     Sigma* sigma;
     if (decl) {
-        sigma = decl->as_mut<Sigma>();
+        sigma = decl->as<Sigma>();
     } else {
         auto type = e.world().type_infer_univ();
         sigma     = e.world().mut_sigma(type, n)->set(dbg().sym());
@@ -178,9 +178,15 @@ Ref DeclExpr::emit_(Emitter& e) const {
     return expr()->emit(e);
 }
 
-Ref ArrowExpr::emit_(Emitter& e) const {
+Ref ArrowExpr::emit_decl(Emitter& e, Ref type) const {
+    bool is_implicit = false;
+    if (auto sigma = dom()->isa<SigmaExpr>()) is_implicit = sigma->is_implicit();
+    return e.world().mut_pi(type, is_implicit)->set(loc());
+}
+
+Ref ArrowExpr::emit_body(Emitter& e, Def* decl) const {
     if (auto sigma = dom()->isa<SigmaExpr>()) {
-        auto pi    = e.world().mut_pi(e.world().type_infer_univ(), false);
+        auto pi    = decl ? decl->as_mut<Pi>() : e.world().mut_pi(e.world().type_infer_univ(), sigma->is_implicit());
         auto dom_t = sigma->ptrn()->emit_type(e);
         pi->set_dom(dom_t);
         sigma->ptrn()->emit_value(e, pi->var());
@@ -190,8 +196,10 @@ Ref ArrowExpr::emit_(Emitter& e) const {
     }
     auto d = dom()->emit(e);
     auto c = codom()->emit(e);
-    return e.world().pi(d, c);
+    return decl ? decl->as<Pi>()->set(d, c) : e.world().pi(d, c);
 }
+
+Ref ArrowExpr::emit_(Emitter& e) const { return emit_body(e, {}); }
 
 void PiExpr::Dom::emit_type(Emitter& e) const {
     pi_        = decl_ ? decl_ : e.world().mut_pi(e.world().type_infer_univ(), is_implicit());
@@ -221,7 +229,7 @@ Ref PiExpr::emit_decl(Emitter& e, Ref type) const {
     return first->decl_ = e.world().mut_pi(type, first->is_implicit())->set(loc());
 }
 
-void PiExpr::emit_body(Emitter& e, Ref) const { emit(e); }
+Ref PiExpr::emit_body(Emitter& e, Def*) const { return emit(e); }
 
 Ref PiExpr::emit_(Emitter& e) const {
     for (const auto& dom : doms()) dom->emit_type(e);
@@ -236,11 +244,11 @@ Ref PiExpr::emit_(Emitter& e) const {
 }
 
 Ref LamExpr::emit_decl(Emitter& e, Ref) const { return lam()->emit_decl(e), lam()->def(); }
-void LamExpr::emit_body(Emitter& e, Ref) const { lam()->emit_body(e); }
+Ref LamExpr::emit_body(Emitter& e, Def*) const { return lam()->emit_body(e); }
 
 Ref LamExpr::emit_(Emitter& e) const {
     auto res = emit_decl(e, {});
-    emit_body(e, {});
+    emit_body(e, nullptr);
     return res;
 }
 
@@ -266,7 +274,7 @@ Ref RetExpr::emit_(Emitter& e) const {
 }
 
 Ref SigmaExpr::emit_decl(Emitter& e, Ref type) const { return ptrn()->emit_decl(e, type); }
-void SigmaExpr::emit_body(Emitter& e, Ref decl) const { ptrn()->emit_body(e, decl); }
+Ref SigmaExpr::emit_body(Emitter& e, Def* decl) const { return ptrn()->emit_body(e, decl); }
 Ref SigmaExpr::emit_(Emitter& e) const { return ptrn()->emit_type(e); }
 
 Ref TupleExpr::emit_(Emitter& e) const {
@@ -403,10 +411,11 @@ void RecDecl::emit_decl(Emitter& e) const {
     def_->set(dbg());
 }
 
-void RecDecl::emit_body(Emitter& e) const {
-    body()->emit_body(e, def_);
+Ref RecDecl::emit_body(Emitter& e) const {
+    body()->emit_body(e, def_->as_mut());
     // TODO immutabilize?
     e.register_annex(annex_, sub_, def_);
+    return def_;
 }
 
 Lam* LamDecl::Dom::emit_value(Emitter& e) const {
@@ -451,10 +460,11 @@ void LamDecl::emit_decl(Emitter& e) const {
     }
 }
 
-void LamDecl::emit_body(Emitter& e) const {
+Ref LamDecl::emit_body(Emitter& e) const {
     doms().back()->lam_->set_body(body()->emit(e));
     if (is_external()) doms().front()->lam_->make_external();
     e.register_annex(annex_, sub_, def_);
+    return def_;
 }
 
 void CDecl::emit(Emitter& e) const {

@@ -11,8 +11,8 @@
 /// ## Operations related to longjmp
 ///
 .let %clos.BufPtr = %mem.Ptr0 .I8;
-.ax %clos.alloc_jmpbuf: %mem.M -> [%mem.M, %clos.BufPtr];
-.ax %clos.setjmp: [%mem.M, %clos.BufPtr] -> [%mem.M, .I32];
+.ax %clos.alloc_jmpbuf: %mem.M → [%mem.M, %clos.BufPtr];
+.ax %clos.setjmp: [%mem.M, %clos.BufPtr] → [%mem.M, .I32];
 .ax %clos.longjmp: .Cn [%mem.M, %clos.BufPtr, .I32];
 ///
 /// ## Closure Attribute
@@ -25,7 +25,7 @@
 ///     * `esc`: lambda that escapes its parent scope
 ///     * `bot`: no special use
 ///
-.ax %clos.attr(ret, freeBB, fstclassBB, esc, bot): Π.[T: *][T] -> T, normalize_clos;
+.ax %clos.attr(ret, freeBB, fstclassBB, esc, bot): {T: *} → T → T, normalize_clos;
 ///
 /// ## Passes and Phases
 ///
@@ -35,7 +35,7 @@
 .ax %clos.branch_clos_pass: %compile.Pass;
 .ax %clos.lower_typed_clos_prep_pass: %compile.Pass;
 .ax %clos.clos2sjlj_pass: %compile.Pass;
-.ax %clos.eta_red_bool_pass: .Bool -> %compile.Pass;
+.ax %clos.eta_red_bool_pass: .Bool → %compile.Pass;
 ///
 /// ### Phases
 ///

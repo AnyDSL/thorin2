@@ -54,8 +54,7 @@
     case Tag::C_LAM
 
 #define C_PI             \
-              T_Pi:      \
-    case Tag::K_Cn:      \
+              K_Cn:      \
     case Tag::K_Fn
 
 #define C_LM        \
@@ -63,19 +62,20 @@
     case Tag::K_cn: \
     case Tag::K_fn
 
-#define C_EXPR                          \
-              C_PRIMARY:                \
-    case Tag::C_ID:                     \
-    case Tag::C_LIT:                    \
-    case Tag::C_DECL:                   \
-    case Tag::C_PI:                     \
-    case Tag::C_LM:                     \
-    case Tag::K_Type:    /*TypeExpr*/   \
-    case Tag::K_ins:     /*InsertExpr*/ \
-    case Tag::K_ret:     /*RetExpr*/    \
-    case Tag::D_angle_l: /*PackExpr*/   \
-    case Tag::D_brckt_l: /*SigmaExpr*/  \
-    case Tag::D_paren_l: /*TupleExpr*/  \
+#define C_EXPR                                  \
+              C_PRIMARY:                        \
+    case Tag::C_ID:                             \
+    case Tag::C_LIT:                            \
+    case Tag::C_DECL:                           \
+    case Tag::C_PI:                             \
+    case Tag::C_LM:                             \
+    case Tag::K_Type:    /*TypeExpr*/           \
+    case Tag::K_ins:     /*InsertExpr*/         \
+    case Tag::K_ret:     /*RetExpr*/            \
+    case Tag::D_angle_l: /*PackExpr*/           \
+    case Tag::D_brace_l: /*PiExpr w/ implicit*/ \
+    case Tag::D_brckt_l: /*SigmaExpr*/          \
+    case Tag::D_paren_l: /*TupleExpr*/          \
     case Tag::D_quote_l  /*ArrExpr*/
 
 #define C_PTRN            \
@@ -290,7 +290,8 @@ Ptr<Expr> Parser::parse_primary_expr(std::string_view ctxt) {
         case Tag::K_ret:     return parse_ret_expr();
         case Tag::D_quote_l: return parse_arr_or_pack_expr<true>();
         case Tag::D_angle_l: return parse_arr_or_pack_expr<false>();
-        case Tag::D_brckt_l: return parse_sigma_expr();
+        case Tag::D_brace_l: return ptr<SigmaExpr>(parse_tuple_ptrn(), true);
+        case Tag::D_brckt_l: return ptr<SigmaExpr>(parse_tuple_ptrn());
         case Tag::D_paren_l: return parse_tuple_expr();
         case Tag::K_Type:    return parse_type_expr();
         default:
@@ -335,8 +336,6 @@ Ptr<Expr> Parser::parse_lit_expr() {
     return ptr<LitExpr>(track, tok, std::move(type));
 }
 
-Ptr<Expr> Parser::parse_sigma_expr() { return ptr<SigmaExpr>(parse_tuple_ptrn()); }
-
 Ptr<Expr> Parser::parse_tuple_expr() {
     auto track = tracker();
     Ptrs<Expr> elems;
@@ -357,7 +356,6 @@ Ptr<Expr> Parser::parse_pi_expr() {
 
     std::string entity;
     switch (tag) {
-        case Tag::T_Pi: entity = "dependent function type"; break;
         case Tag::K_Cn: entity = "continuation type"; break;
         case Tag::K_Fn: entity = "returning continuation type"; break;
         default: fe::unreachable();
